@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiService {
   // Adjust these if your backend is running on a different host/port.
   // If you're using Android emulator use 10.0.2.2 (host machine) and matching port.
-  static const String backendHost = '10.185.43.44';
+  static const String backendHost = '10.0.0.6';
   static const int backendPort = 5000; // set this to your active API port
   static String get baseUrl => 'http://$backendHost:$backendPort/api';
 
