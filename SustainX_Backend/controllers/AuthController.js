@@ -1,84 +1,73 @@
 const AuthService = require('../services/AuthService');
 
 class AuthController {
-    // Register controller
+    // Register
     static async register(req, res, next) {
         try {
-            const { username, email, password, fullName } = req.body;
+            const { user_id, user_type, name, email, password } = req.body;
 
-            // Validate input
-            if (!username || !email || !password) {
+            if (!user_id || !user_type || !email || !password) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Username, email, and password are required'
+                    message: 'user_id, user_type, email, and password are required',
                 });
             }
 
-            // Register user
-            const result = await AuthService.register(username, email, password, fullName);
+            if (!['prosumer', 'consumer'].includes(user_type)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'user_type must be "prosumer" or "consumer"',
+                });
+            }
 
+            const result = await AuthService.register(user_id, user_type, name, email, password);
             return res.status(201).json(result);
         } catch (err) {
             next(err);
         }
     }
 
-    // Login controller
+    // Login
     static async login(req, res, next) {
         try {
-            const { email, password } = req.body;
+            const { user_id, password } = req.body;
 
-            // Validate input
-            if (!email || !password) {
+            if (!user_id || !password) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Email and password are required'
+                    message: 'user_id and password are required',
                 });
             }
 
-            // Login user
-            const result = await AuthService.login(email, password);
-
+            const result = await AuthService.login(user_id, password);
             return res.status(200).json(result);
         } catch (err) {
-            if (err.message === 'Invalid email or password') {
-                return res.status(401).json({
-                    success: false,
-                    message: err.message
-                });
+            if (err.message === 'Invalid user ID or password') {
+                return res.status(401).json({ success: false, message: err.message });
             }
             next(err);
         }
     }
 
-    // Get profile controller
+    // Get profile
     static async getProfile(req, res, next) {
         try {
-            const userId = req.userId;
-
-            const profile = await AuthService.getUserProfile(userId);
-
-            return res.status(200).json({
-                success: true,
-                data: profile
-            });
+            const profile = await AuthService.getUserProfile(req.userId);
+            return res.status(200).json({ success: true, data: profile });
         } catch (err) {
             next(err);
         }
     }
 
-    // Update profile controller
+    // Update profile
     static async updateProfile(req, res, next) {
         try {
-            const userId = req.userId;
-            const { fullName, profileImage } = req.body;
-
-            const updatedProfile = await AuthService.updateProfile(userId, fullName, profileImage);
-
+            const { name } = req.body;
+            const updatedProfile = await AuthService.updateProfile(req.userId, name);
             return res.status(200).json({
                 success: true,
                 message: 'Profile updated successfully',
-                data: updatedProfile
+                data: updatedProfile,
             });
         } catch (err) {
             next(err);

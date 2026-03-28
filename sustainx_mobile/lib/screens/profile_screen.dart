@@ -63,7 +63,7 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final _usernameController = TextEditingController();
+  final _nameController  = TextEditingController();
   final _emailController    = TextEditingController();
 
   bool   _loading   = true;
@@ -80,7 +80,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   void dispose() {
-    _usernameController.dispose();
+    _nameController.dispose();
     _emailController.dispose();
     super.dispose();
   }
@@ -94,7 +94,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (result['success'] == true) {
       final data = Map<String, dynamic>.from(result['data'] ?? {});
-      _usernameController.text = data['username'] ?? '';
+      _nameController.text  = data['name']  ?? '';
       _emailController.text    = data['email']    ?? '';
       setState(() => _loading = false);
       return;
@@ -108,8 +108,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _updateProfile() async {
     // Basic validation
-    if (_usernameController.text.trim().isEmpty) {
-      _snack('Username is required', Colors.red); return;
+    if (_nameController.text.trim().isEmpty) {
+      _snack('Name is required', Colors.red); return;
     }
     if (_emailController.text.trim().isEmpty ||
         !RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(_emailController.text.trim())) {
@@ -119,8 +119,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() { _loading = true; _message = ''; _isEditing = false; });
 
     final result = await ApiService.updateProfile({
-      'username': _usernameController.text.trim(),
-      'email':    _emailController.text.trim(),
+      'name':  _nameController.text.trim(),
     });
 
     if (result['success'] == true) {
@@ -178,7 +177,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                   // ── Name & email ─────────────────────────────────────────
                   Text(
-                    _usernameController.text,
+                    _nameController.text,
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -275,8 +274,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildField(
-            label:       'Username',
-            controller:  _usernameController,
+            label:       'Name',
+            controller:  _nameController,
             surfaceColor: surfaceColor,
             textColor:   textColor,
           ),

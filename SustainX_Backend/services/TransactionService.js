@@ -1,123 +1,116 @@
-const { Op } = require('sequelize');
-const User = require('../models/User');
+const { sequelize } = require('../config/db');
+const { QueryTypes } = require('sequelize');
 const Transaction = require('../models/Transaction');
 
 class TransactionService {
-    static async transferCoins(fromUserId, toUserId, yellowCoins = 0, greenCoins = 0, redCoins = 0, note = '') {
-        if (fromUserId === toUserId) {
-            throw new Error('Cannot transfer to yourself');
-        }
 
-        const sender = await User.findByPk(fromUserId);
-        const receiver = await User.findByPk(toUserId);
-
-        if (!sender || !receiver) {
-            throw new Error('User not found');
-        }
-
-        const totalAmount = Number(yellowCoins) + Number(greenCoins) + Number(redCoins);
-        if (totalAmount <= 0) {
-            throw new Error('Transfer amount must be greater than 0');
-        }
-
-        if (sender.yellowCoins < yellowCoins) throw new Error('Insufficient yellow coins');
-        if (sender.greenCoins < greenCoins) throw new Error('Insufficient green coins');
-        if (sender.redCoins < redCoins) throw new Error('Insufficient red coins');
-
-        const transaction = await Transaction.create({
-            fromUserId,
-            toUserId,
-            yellowCoinsTransferred: yellowCoins,
-            greenCoinsTransferred: greenCoins,
-            redCoinsTransferred: redCoins,
-            totalAmount,
-            description: `Transfer of ${totalAmount} coins`,
-            note,
-            transactionType: 'transfer',
-            status: 'completed',
-            completedAt: new Date(),
-        });
-
-        sender.yellowCoins -= yellowCoins;
-        sender.greenCoins -= greenCoins;
-        sender.redCoins -= redCoins;
-        receiver.yellowCoins += yellowCoins;
-        receiver.greenCoins += greenCoins;
-        receiver.redCoins += redCoins;
-
-        sender.energyScore += 5;
-        receiver.energyScore += 10;
-
-        await sender.save();
-        await receiver.save();
-
-        return {
-            success: true,
-            message: 'Transfer completed successfully',
-            transaction: {
-                transactionId: transaction.id,
-                from: sender.username,
-                to: receiver.username,
-                coinsTransferred: { yellow: yellowCoins, green: greenCoins, red: redCoins },
-                totalAmount,
-                timestamp: transaction.createdAt,
-            },
-            senderBalance: sender.getWalletInfo(),
-            receiverBalance: receiver.getWalletInfo(),
-        };
-    }
-
+    // ─────────────────────────────────────────────────────────────────────
+    // Get transaction history for a user (uses vw_transaction_history view)
+    // ─────────────────────────────────────────────────────────────────────
     static async getTransactionHistory(userId, limit = 50) {
-        return Transaction.findAll({
-            where: { [Op.or]: [{ fromUserId: userId }, { toUserId: userId }] },
-            order: [['createdAt', 'DESC']],
-            limit,
-        });
+        const [rows] = await sequelize.query(
+            `SELECT * FROM vw_transaction_history
+             WHERE sender_id = ? OR receiver_id = ?
+             ORDER BY created_at DESC
+             LIMIT ?`,
+            { replacements: [userId, userId, parseInt(limit)] }
+        );
+
+        return rows.map((r) => ({
+            transaction_id: r.transaction_id,
+            transaction_type: r.transaction_type,
+            coin_type: r.coin_type,
+            amount: parseFloat(r.amount),
+            sender_id: r.sender_id,
+            sender_name: r.sender_name,
+            receiver_id: r.receiver_id,
+            receiver_name: r.receiver_name,
+            billing_cycle: r.billing_cycle,
+            note: r.note,
+            status: r.status,
+            created_at: r.created_at,
+        }));
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Get transaction by ID
+    // ─────────────────────────────────────────────────────────────────────
     static async getTransactionById(transactionId) {
         const transaction = await Transaction.findByPk(transactionId);
         if (!transaction) throw new Error('Transaction not found');
-        return transaction;
-    }
-
-    static async getTransactionStats(userId) {
-        const transactions = await Transaction.findAll({
-            where: { [Op.or]: [{ fromUserId: userId }, { toUserId: userId }], status: 'completed' },
-        });
-
-        const stats = transactions.reduce(
-            (acc, tx) => {
-                acc.totalTransactions += 1;
-                acc.totalYellowTransferred += Number(tx.yellowCoinsTransferred);
-                acc.totalGreenTransferred += Number(tx.greenCoinsTransferred);
-                acc.totalRedTransferred += Number(tx.redCoinsTransferred);
-                acc.totalAmount += Number(tx.totalAmount);
-                return acc;
-            },
-            { totalTransactions: 0, totalYellowTransferred: 0, totalGreenTransferred: 0, totalRedTransferred: 0, totalAmount: 0 }
-        );
 
         return {
-            ...stats,
-            averageAmount: stats.totalTransactions ? stats.totalAmount / stats.totalTransactions : 0,
+            transaction_id: transaction.transaction_id,
+            sender_id: transaction.sender_id,
+            receiver_id: transaction.receiver_id,
+            coin_type: transaction.coin_type,
+            amount: parseFloat(transaction.amount),
+            transaction_type: transaction.transaction_type,
+            billing_cycle: transaction.billing_cycle,
+            note: transaction.note,
+            status: transaction.status,
+            created_at: transaction.created_at,
         };
     }
 
-    static async getReceivedTransactions(userId, limit = 30) {
-        return Transaction.findAll({
-            where: { toUserId: userId, status: 'completed' },
-            order: [['createdAt', 'DESC']],
-            limit,
-        });
+    // ─────────────────────────────────────────────────────────────────────
+    // Get transaction stats for a user
+    // ─────────────────────────────────────────────────────────────────────
+    static async getTransactionStats(userId) {
+        const [rows] = await sequelize.query(
+            `SELECT
+                COUNT(*) AS total_transactions,
+                SUM(CASE WHEN coin_type = 'green' THEN amount ELSE 0 END) AS total_green_amount,
+                SUM(CASE WHEN coin_type = 'red' THEN amount ELSE 0 END) AS total_red_amount,
+                SUM(CASE WHEN transaction_type = 'transfer' AND sender_id = ? THEN amount ELSE 0 END) AS total_sent,
+                SUM(CASE WHEN transaction_type = 'transfer' AND receiver_id = ? THEN amount ELSE 0 END) AS total_received,
+                SUM(CASE WHEN transaction_type = 'mint' AND receiver_id = ? THEN amount ELSE 0 END) AS total_minted,
+                SUM(CASE WHEN transaction_type = 'offset' AND sender_id = ? THEN amount ELSE 0 END) AS total_offset
+            FROM transactions
+            WHERE (sender_id = ? OR receiver_id = ?) AND status = 'completed'`,
+            { replacements: [userId, userId, userId, userId, userId, userId] }
+        );
+
+        const stats = rows[0];
+        return {
+            total_transactions: parseInt(stats.total_transactions) || 0,
+            total_green_amount: parseFloat(stats.total_green_amount) || 0,
+            total_red_amount: parseFloat(stats.total_red_amount) || 0,
+            total_sent: parseFloat(stats.total_sent) || 0,
+            total_received: parseFloat(stats.total_received) || 0,
+            total_minted: parseFloat(stats.total_minted) || 0,
+            total_offset: parseFloat(stats.total_offset) || 0,
+        };
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Get received transactions
+    // ─────────────────────────────────────────────────────────────────────
+    static async getReceivedTransactions(userId, limit = 30) {
+        const [rows] = await sequelize.query(
+            `SELECT * FROM vw_transaction_history
+             WHERE receiver_id = ? AND transaction_type = 'transfer'
+             ORDER BY created_at DESC
+             LIMIT ?`,
+            { replacements: [userId, parseInt(limit)] }
+        );
+
+        return rows;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Get sent transactions
+    // ─────────────────────────────────────────────────────────────────────
     static async getSentTransactions(userId, limit = 30) {
-        return Transaction.findAll({
-            where: { fromUserId: userId, status: 'completed' },
-            order: [['createdAt', 'DESC']],
-            limit,
-        });
+        const [rows] = await sequelize.query(
+            `SELECT * FROM vw_transaction_history
+             WHERE sender_id = ? AND transaction_type = 'transfer'
+             ORDER BY created_at DESC
+             LIMIT ?`,
+            { replacements: [userId, parseInt(limit)] }
+        );
+
+        return rows;
     }
 }
 

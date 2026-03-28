@@ -6,8 +6,7 @@ const { authMiddleware } = require('../middleware/auth');
 // All transaction routes require authentication
 router.use(authMiddleware);
 
-// Transaction endpoints
-router.post('/transfer', TransactionController.transferCoins);
+// Transaction endpoints (read-only — transfers go through wallet routes)
 router.get('/history', TransactionController.getTransactionHistory);
 router.get('/stats', TransactionController.getTransactionStats);
 router.get('/received', TransactionController.getReceivedTransactions);

@@ -8,9 +8,11 @@ const authRoutes = require('./routes/authRoutes');
 const walletRoutes = require('./routes/walletRoutes');
 const energyRoutes = require('./routes/energyRoutes');
 const transactionRoutes = require('./routes/transactionRoutes');
+const weatherRoutes = require('./routes/weatherRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
 
 // Import Sequelize connection
-const { testConnection, sequelize } = require('./config/db');
+const { testConnection } = require('./config/db');
 
 // Initialize Express app
 const app = express();
@@ -20,14 +22,13 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Connect to MySQL and sync models
+// Connect to MySQL (no sync — schema is managed by SQL file)
 const connectDB = async () => {
     try {
         await testConnection();
-        await sequelize.sync({ alter: true });
-        console.log('✓ MySQL models synchronized');
+        console.log('✓ MySQL connection ready (schema managed by SQL)');
     } catch (err) {
-        console.error('✗ MySQL sync failed:', err.message);
+        console.error('✗ MySQL connection failed:', err.message);
         process.exit(1);
     }
 };
@@ -38,7 +39,7 @@ connectDB();
 app.get('/health', (req, res) => {
     res.status(200).json({
         status: 'OK',
-        message: 'EnergyPass Backend is running',
+        message: 'SustainX Backend is running',
         timestamp: new Date().toISOString(),
         database: 'MySQL',
         databaseStatus: 'connected',
@@ -50,18 +51,22 @@ app.use('/api/auth', authRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/energy', energyRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/weather', weatherRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // Welcome endpoint
 app.get('/', (req, res) => {
     res.status(200).json({
-        message: 'Welcome to EnergyPass Backend API',
-        version: '1.0.0',
+        message: 'Welcome to SustainX Backend API',
+        version: '2.0.0',
         endpoints: {
             auth: '/api/auth',
             wallet: '/api/wallet',
             energy: '/api/energy',
-            transactions: '/api/transactions'
-        }
+            transactions: '/api/transactions',
+            weather: '/api/weather',
+            payments: '/api/payments',
+        },
     });
 });
 
@@ -70,7 +75,7 @@ app.use((req, res) => {
     res.status(404).json({
         success: false,
         message: 'Route not found',
-        path: req.originalUrl
+        path: req.originalUrl,
     });
 });
 
@@ -83,11 +88,11 @@ const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
     console.log(`
     ╔════════════════════════════════════════╗
-    ║    EnergyPass Backend Server Started   ║
+    ║      SustainX Backend Server v2.0     ║
     ╠════════════════════════════════════════╣
     ║  Port: ${PORT}
     ║  Environment: ${process.env.NODE_ENV || 'development'}
-    ║  Database: MySQL
+    ║  Database: MySQL (schema via SQL)
     ╚════════════════════════════════════════╝
     `);
 });
@@ -99,6 +104,7 @@ process.on('unhandledRejection', (err) => {
 });
 
 // Graceful shutdown
+const { sequelize } = require('./config/db');
 process.on('SIGTERM', async () => {
     console.log('SIGTERM received. Shutting down gracefully...');
     server.close(async () => {

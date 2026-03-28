@@ -6,17 +6,20 @@ const { authMiddleware } = require('../middleware/auth');
 // All wallet routes require authentication
 router.use(authMiddleware);
 
-// Wallet endpoints
+// Wallet info & balance
 router.get('/info', WalletController.getWallet);
 router.get('/balance', WalletController.getBalance);
-router.get('/address', WalletController.getWalletAddress);
 
-// QR Code generation
-router.get('/qr-code', WalletController.generateQRCode);
+// Green coin transfer
+router.post('/transfer-green', WalletController.transferGreen);
 
-// Leaderboard endpoints (public, but included here for wallet context)
+// Offset red coins with green
+router.post('/offset-red', WalletController.offsetRed);
+
+// Leaderboard
 router.get('/leaderboard', WalletController.getLeaderboard);
-router.get('/leaderboard/coins', WalletController.getLeaderboardByCoins);
-router.get('/rank', WalletController.getUserRank);
+
+// System-wide totals
+router.get('/system-totals', WalletController.getSystemTotals);
 
 module.exports = router;

@@ -4,80 +4,56 @@ const { sequelize } = require('../config/db');
 
 class User extends Model {
     async comparePassword(candidatePassword) {
-        return bcrypt.compare(candidatePassword, this.password);
-    }
-
-    getTotalBalance() {
-        return this.yellowCoins + this.greenCoins + this.redCoins;
-    }
-
-    getWalletInfo() {
-        return {
-            userId: this.id,
-            username: this.username,
-            walletAddress: this.walletAddress,
-            balances: {
-                yellowCoins: this.yellowCoins,
-                greenCoins: this.greenCoins,
-                redCoins: this.redCoins,
-            },
-            totalBalance: this.getTotalBalance(),
-            energyScore: this.energyScore,
-        };
+        return bcrypt.compare(candidatePassword, this.password_hash);
     }
 }
 
 User.init(
     {
-        id: {
-            type: DataTypes.UUID,
-            defaultValue: DataTypes.UUIDV4,
+        user_id: {
+            type: DataTypes.STRING(10),
             primaryKey: true,
             allowNull: false,
         },
-        username: {
-            type: DataTypes.STRING,
+        user_type: {
+            type: DataTypes.ENUM('prosumer', 'consumer'),
             allowNull: false,
-            unique: true,
-            validate: { len: [3, 50] },
+        },
+        name: {
+            type: DataTypes.STRING(100),
+            allowNull: true,
         },
         email: {
-            type: DataTypes.STRING,
+            type: DataTypes.STRING(150),
             allowNull: false,
             unique: true,
             validate: { isEmail: true },
         },
-        password: {
-            type: DataTypes.STRING,
+        password_hash: {
+            type: DataTypes.STRING(255),
             allowNull: false,
-            validate: { len: [6, 100] },
         },
-        yellowCoins: { type: DataTypes.DECIMAL(16, 2), defaultValue: 0 },
-        greenCoins: { type: DataTypes.DECIMAL(16, 2), defaultValue: 0 },
-        redCoins: { type: DataTypes.DECIMAL(16, 2), defaultValue: 0 },
-        energyScore: { type: DataTypes.INTEGER, defaultValue: 0 },
-        walletAddress: { type: DataTypes.STRING, unique: true },
-        fullName: { type: DataTypes.STRING },
-        profileImage: { type: DataTypes.STRING },
-        deviceTokens: { type: DataTypes.JSON },
+        is_active: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: true,
+        },
     },
     {
         sequelize,
         modelName: 'User',
         tableName: 'users',
         timestamps: true,
+        createdAt: 'created_at',
+        updatedAt: 'updated_at',
         hooks: {
             beforeCreate: async (user) => {
-                if (user.password) {
-                    user.password = await bcrypt.hash(user.password, 10);
-                }
-                if (!user.walletAddress) {
-                    user.walletAddress = `wallet_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+                if (user.password_hash && !user.password_hash.startsWith('$2')) {
+                    user.password_hash = await bcrypt.hash(user.password_hash, 10);
                 }
             },
             beforeUpdate: async (user) => {
-                if (user.changed('password')) {
-                    user.password = await bcrypt.hash(user.password, 10);
+                if (user.changed('password_hash') && !user.password_hash.startsWith('$2')) {
+                    user.password_hash = await bcrypt.hash(user.password_hash, 10);
                 }
             },
         },

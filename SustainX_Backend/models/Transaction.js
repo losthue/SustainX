@@ -5,49 +5,53 @@ class Transaction extends Model {}
 
 Transaction.init(
     {
-        fromUserId: {
-            type: DataTypes.STRING(64),
+        transaction_id: {
+            type: DataTypes.INTEGER,
+            primaryKey: true,
+            autoIncrement: true,
+        },
+        sender_id: {
+            type: DataTypes.STRING(10),
+            allowNull: true, // NULL for system mint/burn
+        },
+        receiver_id: {
+            type: DataTypes.STRING(10),
+            allowNull: true, // NULL for burns
+        },
+        coin_type: {
+            type: DataTypes.ENUM('green', 'red'),
             allowNull: false,
         },
-        toUserId: {
-            type: DataTypes.STRING(64),
+        amount: {
+            type: DataTypes.DECIMAL(10, 4),
             allowNull: false,
         },
-        yellowCoinsTransferred: {
-            type: DataTypes.DECIMAL(16, 2),
-            defaultValue: 0,
-        },
-        greenCoinsTransferred: {
-            type: DataTypes.DECIMAL(16, 2),
-            defaultValue: 0,
-        },
-        redCoinsTransferred: {
-            type: DataTypes.DECIMAL(16, 2),
-            defaultValue: 0,
-        },
-        totalAmount: {
-            type: DataTypes.DECIMAL(16, 2),
+        transaction_type: {
+            type: DataTypes.ENUM('mint', 'transfer', 'offset', 'burn'),
             allowNull: false,
         },
-        description: DataTypes.STRING,
-        note: DataTypes.STRING,
-        transactionType: {
-            type: DataTypes.ENUM('transfer', 'conversion', 'reward', 'purchase', 'redeem'),
-            defaultValue: 'transfer',
+        billing_cycle: {
+            type: DataTypes.INTEGER,
+            allowNull: true,
+        },
+        note: {
+            type: DataTypes.STRING(255),
+            allowNull: true,
         },
         status: {
-            type: DataTypes.ENUM('pending', 'completed', 'failed', 'cancelled'),
+            type: DataTypes.ENUM('pending', 'completed', 'failed'),
             defaultValue: 'pending',
         },
-        completedAt: DataTypes.DATE,
+        created_at: {
+            type: DataTypes.DATE,
+            defaultValue: DataTypes.NOW,
+        },
     },
     {
         sequelize,
         modelName: 'Transaction',
         tableName: 'transactions',
-        timestamps: true,
-        createdAt: true,
-        updatedAt: false,
+        timestamps: false,
     }
 );
 

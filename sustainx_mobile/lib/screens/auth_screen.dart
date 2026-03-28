@@ -13,14 +13,16 @@ class _AuthScreenState extends State<AuthScreen> {
   int _currentPage = 0; // 0 = Login, 1 = Register
 
   // ── Login fields ──────────────────────────────────────────────
-  final _loginEmailController    = TextEditingController();
+  final _loginUserIdController  = TextEditingController();
   final _loginPasswordController = TextEditingController();
   bool _loginObscure = true;
 
-  // ── Register fields ───────────────────────────────────────────
-  final _regUsernameController = TextEditingController();
-  final _regEmailController    = TextEditingController();
+  // ── Register fields ───────────────────────────────────────────────────
+  final _regUserIdController = TextEditingController();
+  final _regNameController   = TextEditingController();
+  final _regEmailController  = TextEditingController();
   final _regPasswordController = TextEditingController();
+  String _regUserType = 'consumer';
   bool _regObscure = true;
 
   // ── State ──────────────────────────────────────────────────────
@@ -30,9 +32,10 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   void dispose() {
     _pageController.dispose();
-    _loginEmailController.dispose();
+    _loginUserIdController.dispose();
     _loginPasswordController.dispose();
-    _regUsernameController.dispose();
+    _regUserIdController.dispose();
+    _regNameController.dispose();
     _regEmailController.dispose();
     _regPasswordController.dispose();
     super.dispose();
@@ -58,8 +61,12 @@ class _AuthScreenState extends State<AuthScreen> {
     final isRegister = _currentPage == 1;
 
     if (isRegister) {
-      if (_regUsernameController.text.trim().length < 3) {
-        _showError('Username must be at least 3 characters.');
+      if (_regUserIdController.text.trim().isEmpty) {
+        _showError('User ID is required for registration.');
+        return;
+      }
+      if (_regNameController.text.trim().isEmpty) {
+        _showError('Name is required.');
         return;
       }
       if (_regEmailController.text.trim().isEmpty ||
@@ -72,9 +79,8 @@ class _AuthScreenState extends State<AuthScreen> {
         return;
       }
     } else {
-      if (_loginEmailController.text.trim().isEmpty ||
-          !_loginEmailController.text.contains('@')) {
-        _showError('Please enter a valid email address.');
+      if (_loginUserIdController.text.trim().isEmpty) {
+        _showError('User ID is required.');
         return;
       }
       if (_loginPasswordController.text.trim().length < 6) {
@@ -91,22 +97,26 @@ class _AuthScreenState extends State<AuthScreen> {
     try {
       final result = isRegister
           ? await ApiService.register(
-              _regUsernameController.text.trim(),
+              _regUserIdController.text.trim(),
+              _regUserType,
+              _regNameController.text.trim(),
               _regEmailController.text.trim(),
               _regPasswordController.text.trim(),
             )
           : await ApiService.login(
-              _loginEmailController.text.trim(),
+              _loginUserIdController.text.trim(),
               _loginPasswordController.text.trim(),
             );
 
       if (result['success'] == true) {
-        final token = result['data']?['token'] ?? result['data'];
-        final user  = result['data']?['user']?['username'] ??
-            _regUsernameController.text.trim();
+        final token  = result['data']?['token'] ?? result['data'];
+        final name   = result['data']?['user']?['name'] ??
+            _regNameController.text.trim();
+        final userId = result['data']?['user']?['user_id'] ??
+            _regUserIdController.text.trim();
 
         if (token != null && token is String && token.isNotEmpty) {
-          await ApiService.saveToken(token, user as String);
+          await ApiService.saveToken(token, name as String, userId as String);
           if (!mounted) return;
           Navigator.pushReplacementNamed(context, '/dashboard');
           return;
@@ -257,10 +267,9 @@ class _AuthScreenState extends State<AuthScreen> {
   Widget _loginForm() => Column(
         children: [
           _field(
-            controller: _loginEmailController,
-            label: 'Email',
-            icon: Icons.email_outlined,
-            keyboardType: TextInputType.emailAddress,
+            controller: _loginUserIdController,
+            label: 'User ID',
+            icon: Icons.person_outline,
           ),
           _passwordField(
             controller: _loginPasswordController,
@@ -278,15 +287,33 @@ class _AuthScreenState extends State<AuthScreen> {
   Widget _registerForm() => Column(
         children: [
           _field(
-            controller: _regUsernameController,
-            label: 'Username',
+            controller: _regUserIdController,
+            label: 'User ID',
             icon: Icons.person_outline,
+          ),
+          _field(
+            controller: _regNameController,
+            label: 'Name',
+            icon: Icons.badge_outlined,
           ),
           _field(
             controller: _regEmailController,
             label: 'Email',
             icon: Icons.email_outlined,
             keyboardType: TextInputType.emailAddress,
+          ),
+          // User type dropdown
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: DropdownButtonFormField<String>(
+              value: _regUserType,
+              decoration: _inputDecoration('User Type', Icons.category_outlined),
+              items: const [
+                DropdownMenuItem(value: 'consumer', child: Text('Consumer')),
+                DropdownMenuItem(value: 'prosumer', child: Text('Prosumer')),
+              ],
+              onChanged: (v) => setState(() => _regUserType = v ?? 'consumer'),
+            ),
           ),
           _passwordField(
             controller: _regPasswordController,

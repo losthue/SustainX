@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'screens/auth_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/transaction_screen.dart';
@@ -7,6 +7,7 @@ import 'screens/profile_screen.dart';
 import 'screens/marketplace_screen.dart';
 import 'screens/energy_prediction_screen.dart';
 import 'screens/energy_forecasting_screen.dart';
+import 'screens/energy_record_screen.dart';
 import 'services/api_service.dart';
 
 void main() {
@@ -34,6 +35,7 @@ class MyApp extends StatelessWidget {
         '/marketplace': (_) => const MarketplaceScreen(),
         '/prediction': (_) => const EnergyPredictionScreen(),
         '/forecasting': (_) => const EnergyForecastingScreen(),
+        '/energy-record': (_) => const EnergyRecordScreen(),
       },
     );
   }

@@ -10,16 +10,18 @@ const bcrypt = require('bcryptjs');
     await sequelize.sync({ alter: true });
 
     const testUser = await User.create({
-      username: 'testuser',
-      email: 'test@sustainx.local',
+      userId: 'PR001',
+      username: 'prosumer001',
+      email: 'prosumer001@sustainx.local',
       password: 'Test@12345',
-      fullName: 'Test User',
+      fullName: 'Prosumer 001',
     });
 
     console.log('\n✓ Test user created successfully!\n');
+    console.log('🆔 User ID:', testUser.userId);
     console.log('📧 Email:', testUser.email);
     console.log('🔑 Password: Test@12345');
-    console.log('\nYou can now use these credentials to login and test the API.\n');
+    console.log('\nYou can now use these credentials to login with user_id + password.\n');
 
     await sequelize.close();
     process.exit(0);

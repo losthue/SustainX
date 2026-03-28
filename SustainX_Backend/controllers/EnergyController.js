@@ -1,113 +1,113 @@
 const EnergyService = require('../services/EnergyService');
 
 class EnergyController {
-    // Record energy data
-    static async recordEnergyData(req, res, next) {
+
+    // GET /energy/totals
+    static async getEnergyTotals(req, res, next) {
         try {
-            const userId = req.userId;
-            const { importedKWh, exportedKWh, conversionRate = 10 } = req.body;
-
-            // Validate input
-            if (importedKWh === undefined || exportedKWh === undefined) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'importedKWh and exportedKWh are required'
-                });
-            }
-
-            if (importedKWh < 0 || exportedKWh < 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Energy values cannot be negative'
-                });
-            }
-
-            // Record energy data
-            const result = await EnergyService.recordEnergyData(userId, importedKWh, exportedKWh, conversionRate);
-
-            return res.status(201).json(result);
-        } catch (err) {
-            next(err);
-        }
+            const totals = await EnergyService.getEnergyTotals(req.userId);
+            return res.status(200).json({ success: true, data: totals });
+        } catch (err) { next(err); }
     }
 
-    // Get energy history
-    static async getEnergyHistory(req, res, next) {
+    // GET /energy/readings
+    static async getReadings(req, res, next) {
         try {
-            const userId = req.userId;
-            const { limit = 30 } = req.query;
-
-            const history = await EnergyService.getEnergyHistory(userId, parseInt(limit));
-
+            const readings = await EnergyService.getReadings(req.userId);
             return res.status(200).json({
                 success: true,
-                data: history
+                data: readings,
+                count: readings.length,
             });
-        } catch (err) {
-            next(err);
-        }
+        } catch (err) { next(err); }
     }
 
-    // Get energy statistics
-    static async getEnergyStats(req, res, next) {
+    // GET /energy/cycles
+    static async getCycleBreakdown(req, res, next) {
         try {
-            const userId = req.userId;
-            const { days = 30 } = req.query;
+            const cycles = await EnergyService.getCycleBreakdown(req.userId);
+            return res.status(200).json({ success: true, data: cycles });
+        } catch (err) { next(err); }
+    }
 
-            const stats = await EnergyService.getEnergyStats(userId, parseInt(days));
+    // POST /energy/generate-coins
+    // Body: { billing_cycle: number }
+    static async generateCoins(req, res, next) {
+        try {
+            const { billing_cycle } = req.body;
 
+            if (!billing_cycle || parseInt(billing_cycle) <= 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'billing_cycle must be a positive integer',
+                });
+            }
+
+            const result = await EnergyService.generateCoinsForCycle(parseInt(billing_cycle));
+            return res.status(200).json({ success: true, data: result });
+        } catch (err) { next(err); }
+    }
+
+    // GET /energy/coin-history
+    static async getCoinGenerationHistory(req, res, next) {
+        try {
+            const history = await EnergyService.getCoinGenerationHistory(req.userId);
             return res.status(200).json({
                 success: true,
-                data: stats,
-                period: `${days} days`
+                data: history,
+                count: history.length,
             });
-        } catch (err) {
-            next(err);
-        }
+        } catch (err) { next(err); }
     }
 
-    // Process meter readings batch
-    static async processMeterReadings(req, res, next) {
+    // GET /energy/cycle-summary/:cycle
+    static async getCycleSummary(req, res, next) {
         try {
-            const { readings } = req.body;
+            const { cycle } = req.params;
+            const summary = await EnergyService.getCycleSummary(parseInt(cycle));
+            return res.status(200).json({ success: true, data: summary });
+        } catch (err) { next(err); }
+    }
 
-            if (!Array.isArray(readings) || readings.length === 0) {
+    // POST /energy/record
+    // Body: { import_kwh, export_kwh, billing_cycle }
+    static async recordReading(req, res, next) {
+        try {
+            const { import_kwh, export_kwh, billing_cycle } = req.body;
+
+            if (import_kwh === undefined || export_kwh === undefined || !billing_cycle) {
                 return res.status(400).json({
                     success: false,
-                    message: 'readings must be a non-empty array'
+                    message: 'import_kwh, export_kwh, and billing_cycle are required',
                 });
             }
 
-            const result = await EnergyService.processMeterReadings(readings);
-            return res.status(201).json({
+            const result = await EnergyService.recordReading(
+                req.userId,
+                import_kwh,
+                export_kwh,
+                billing_cycle
+            );
+
+            return res.status(result.action === 'created' ? 201 : 200).json({
                 success: true,
-                message: 'Meter readings processed',
-                processed: result.length,
-                details: result,
+                message: `Energy reading ${result.action} for cycle ${billing_cycle}`,
+                data: result,
             });
         } catch (err) {
+            if (err.message && (err.message.includes('must be') || err.message.includes('exceeds'))) {
+                return res.status(400).json({ success: false, message: err.message });
+            }
             next(err);
         }
     }
 
-    // Update conversion rate (admin function)
-    static async updateConversionRate(req, res, next) {
+    // GET /energy/rates
+    static async getConversionRates(req, res, next) {
         try {
-            const { newRate } = req.body;
-
-            if (!newRate || newRate <= 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Conversion rate must be a positive number'
-                });
-            }
-
-            const result = await EnergyService.updateConversionRate(newRate);
-
-            return res.status(200).json(result);
-        } catch (err) {
-            next(err);
-        }
+            const rates = await EnergyService.getConversionRates();
+            return res.status(200).json({ success: true, data: rates });
+        } catch (err) { next(err); }
     }
 }
 

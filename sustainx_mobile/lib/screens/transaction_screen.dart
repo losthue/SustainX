@@ -41,20 +41,6 @@ class _GradientBoxBorder extends BoxBorder {
   @override ShapeBorder scale(double t) => this;
 }
 
-// ── Coin config ────────────────────────────────────────────────────────────
-class _CoinConfig {
-  const _CoinConfig({
-    required this.label,
-    required this.asset,
-    required this.accent,
-    required this.controller,
-  });
-  final String label;
-  final String asset;
-  final Color  accent;
-  final TextEditingController controller;
-}
-
 // ── Screen ─────────────────────────────────────────────────────────────────
 class TransactionScreen extends StatefulWidget {
   const TransactionScreen({super.key});
@@ -66,11 +52,9 @@ class _TransactionScreenState extends State<TransactionScreen>
     with SingleTickerProviderStateMixin {
 
   // controllers
-  final _toUserController    = TextEditingController();
-  final _yellowController    = TextEditingController(text: '0');
-  final _greenController     = TextEditingController(text: '0');
-  final _redController       = TextEditingController(text: '0');
-  final _noteController      = TextEditingController();
+  final _toUserController      = TextEditingController();
+  final _greenAmountController  = TextEditingController(text: '0');
+  final _noteController         = TextEditingController();
 
   // state
   bool          _isLoading = true;
@@ -78,6 +62,11 @@ class _TransactionScreenState extends State<TransactionScreen>
   bool          _msgIsError = false;
   List<dynamic> _sent      = [];
   List<dynamic> _received  = [];
+
+  // wallet info
+  double _greenCoins = 0;
+  double _redCoins   = 0;
+  double _yellowCoins = 0;
 
   late TabController _tabController;
   bool _initialized = false;
@@ -94,9 +83,7 @@ class _TransactionScreenState extends State<TransactionScreen>
   @override
   void dispose() {
     _toUserController.dispose();
-    _yellowController.dispose();
-    _greenController.dispose();
-    _redController.dispose();
+    _greenAmountController.dispose();
     _noteController.dispose();
     _tabController.dispose();
     super.dispose();
@@ -108,6 +95,16 @@ class _TransactionScreenState extends State<TransactionScreen>
 
     final sentRes     = await ApiService.getSentTransactions();
     final receivedRes = await ApiService.getReceivedTransactions();
+    final walletRes   = await ApiService.getWalletBalance();
+
+    if (walletRes['success'] == true) {
+      final data = walletRes['data'] as Map<String, dynamic>?;
+      setState(() {
+        _greenCoins  = _toDouble(data?['green_coins']);
+        _redCoins    = _toDouble(data?['red_coins']);
+        _yellowCoins = _toDouble(data?['yellow_coins']);
+      });
+    }
 
     if (sentRes['success'] == true && receivedRes['success'] == true) {
       setState(() {
@@ -127,45 +124,48 @@ class _TransactionScreenState extends State<TransactionScreen>
     });
   }
 
-  Future<void> _sendCoins() async {
-    final toUserId = _toUserController.text.trim();
-    if (toUserId.isEmpty) {
+  double _toDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0.0;
+    return 0.0;
+  }
+
+  Future<void> _transferGreenCoins() async {
+    final recipient = _toUserController.text.trim();
+    final amount = double.tryParse(_greenAmountController.text.trim()) ?? 0;
+
+    if (recipient.isEmpty) {
       _setMsg('Recipient user ID is required.', isError: true);
       return;
     }
-
-    final yellow = int.tryParse(_yellowController.text) ?? 0;
-    final green  = int.tryParse(_greenController.text)  ?? 0;
-    final red    = int.tryParse(_redController.text)    ?? 0;
-
-    if (yellow + green + red == 0) {
-      _setMsg('Please enter at least one coin amount.', isError: true);
+    if (amount <= 0) {
+      _setMsg('Enter a positive amount of green coins to transfer.', isError: true);
+      return;
+    }
+    if (amount > _greenCoins) {
+      _setMsg('Only ${_greenCoins.toStringAsFixed(0)} green coins available.', isError: true);
       return;
     }
 
-    setState(() { _isLoading = true; _message = ''; });
-
-    final res = await ApiService.transferCoins(
-      toUserId,
-      yellowCoins: yellow,
-      greenCoins:  green,
-      redCoins:    red,
-      note:        _noteController.text.trim(),
+    setState(() => _isLoading = true);
+    final res = await ApiService.transferGreenCoins(
+      recipient,
+      amount,
+      note: _noteController.text.trim(),
     );
-
     if (res['success'] == true) {
+      _greenAmountController.text = '0';
       _toUserController.clear();
-      _yellowController.text = '0';
-      _greenController.text  = '0';
-      _redController.text    = '0';
       _noteController.clear();
       await _loadTransactions();
-      _setMsg('Transfer completed successfully!', isError: false);
+      _setMsg('Transferred ${amount.toStringAsFixed(0)} green coins to $recipient.', isError: false);
     } else {
+      _setMsg(res['message']?.toString() ?? 'Transfer failed', isError: true);
       setState(() => _isLoading = false);
-      _setMsg(res['message']?.toString() ?? 'Transfer failed.', isError: true);
     }
   }
+
 
   void _setMsg(String msg, {required bool isError}) =>
       setState(() { _message = msg; _msgIsError = isError; });
@@ -269,27 +269,6 @@ class _TransactionScreenState extends State<TransactionScreen>
 
   // ── Transfer card ─────────────────────────────────────────────────────────
   Widget _buildTransferCard(Color surface, Color textColor, bool isDark) {
-    final coins = [
-      _CoinConfig(
-        label:      'Yellow',
-        asset:      'assets/images/Yellow_Coin.png',
-        accent:     const Color(0xFFFFB300),
-        controller: _yellowController,
-      ),
-      _CoinConfig(
-        label:      'Green',
-        asset:      'assets/images/Green_Coin.png',
-        accent:     const Color(0xFF43A047),
-        controller: _greenController,
-      ),
-      _CoinConfig(
-        label:      'Red',
-        asset:      'assets/images/Red_Coin.png',
-        accent:     const Color(0xFFE53935),
-        controller: _redController,
-      ),
-    ];
-
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -323,7 +302,7 @@ class _TransactionScreenState extends State<TransactionScreen>
               ),
               const SizedBox(width: 10),
               Text(
-                'Send Coins',
+                'Send Green Coins',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 18,
@@ -332,7 +311,31 @@ class _TransactionScreenState extends State<TransactionScreen>
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
+
+          // Wallet status
+          Row(
+            children: [
+              _balanceBadge('🟢 Green', _greenCoins, const Color(0xFF43A047)),
+              const SizedBox(width: 8),
+              _balanceBadge('🟡 Yellow', _yellowCoins, _kGold),
+              const SizedBox(width: 8),
+              _balanceBadge('🔴 Red', _redCoins, Colors.red),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Transfer green coins
+          _buildActionRow(
+            label: 'Amount',
+            controller: _greenAmountController,
+            buttonLabel: 'Send',
+            onPressed: _transferGreenCoins,
+            textColor: textColor,
+            isDark: isDark,
+            accentColor: const Color(0xFF43A047),
+          ),
+          const SizedBox(height: 16),
 
           // Recipient
           _buildTextField(
@@ -342,21 +345,6 @@ class _TransactionScreenState extends State<TransactionScreen>
             icon:        Icons.person_search_rounded,
             textColor:   textColor,
             isDark:      isDark,
-          ),
-          const SizedBox(height: 16),
-
-          // Coin inputs
-          Row(
-            children: coins.map((c) =>
-              Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    right: c.label != 'Red' ? 10 : 0,
-                  ),
-                  child: _buildCoinInput(c, textColor, isDark),
-                ),
-              ),
-            ).toList(),
           ),
           const SizedBox(height: 16),
 
@@ -370,126 +358,110 @@ class _TransactionScreenState extends State<TransactionScreen>
             isDark:      isDark,
             maxLines:    2,
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
 
-          // Send button
-          SizedBox(
-            height: 50,
-            width: double.infinity,
-            child: DecoratedBox(
+          // Auto-offset info
+          if (_redCoins > 0)
+            Container(
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: _gradientColors),
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                    color: _kPink.withOpacity(0.35),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
+                color: Colors.orange.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.orange.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline_rounded, color: Colors.orange, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'You have ${_redCoins.toStringAsFixed(0)} red coins debt. Green coins received will auto-offset your debt.',
+                      style: TextStyle(fontSize: 11, color: textColor.withOpacity(0.6)),
+                    ),
                   ),
                 ],
               ),
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.transparent,
-                  shadowColor:     Colors.transparent,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                ),
-                onPressed: _sendCoins,
-                icon: const Icon(Icons.send_rounded, size: 18),
-                label: const Text(
-                  'Send Coins',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-              ),
             ),
-          ),
+          const SizedBox(height: 16),
         ],
       ),
     );
   }
 
-  Widget _buildCoinInput(_CoinConfig coin, Color textColor, bool isDark) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        // Coin image
-        Image.asset(coin.asset, width: 42, height: 42),
-        const SizedBox(height: 6),
-        Text(
-          coin.label,
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 12,
-            color: coin.accent,
-          ),
+  Widget _balanceBadge(String label, double amount, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
         ),
-        const SizedBox(height: 6),
-        // +/- stepper
-        Container(
-          decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white.withOpacity(0.07)
-                : coin.accent.withOpacity(0.07),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: coin.accent.withOpacity(0.3)),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _stepperBtn(
-                icon:    Icons.remove,
-                color:   coin.accent,
-                onTap: () {
-                  final val = int.tryParse(coin.controller.text) ?? 0;
-                  if (val > 0) coin.controller.text = '${val - 1}';
-                },
+        child: Column(
+          children: [
+            Text(
+              amount.toStringAsFixed(0),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+                color: color,
               ),
-              Expanded(
-                child: TextField(
-                  controller:  coin.controller,
-                  keyboardType: TextInputType.number,
-                  textAlign:   TextAlign.center,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    color: textColor,
-                  ),
-                  decoration: const InputDecoration(
-                    border:      InputBorder.none,
-                    isDense:     true,
-                    contentPadding: EdgeInsets.symmetric(vertical: 8),
-                  ),
-                ),
-              ),
-              _stepperBtn(
-                icon:  Icons.add,
-                color: coin.accent,
-                onTap: () {
-                  final val = int.tryParse(coin.controller.text) ?? 0;
-                  coin.controller.text = '${val + 1}';
-                },
-              ),
-            ],
-          ),
+            ),
+            Text(
+              label,
+              style: TextStyle(fontSize: 9, color: color.withOpacity(0.8)),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
-  Widget _stepperBtn({
-    required IconData icon,
-    required Color    color,
-    required VoidCallback onTap,
+  Widget _buildActionRow({
+    required String label,
+    required TextEditingController controller,
+    required String buttonLabel,
+    required VoidCallback onPressed,
+    required Color textColor,
+    required bool isDark,
+    required Color accentColor,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-        child: Icon(icon, size: 16, color: color),
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: textColor)),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  hintText: 'Enter amount',
+                  filled: true,
+                  fillColor: isDark ? const Color(0xFF1B1B1B) : const Color(0xFFF2F2F8),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              height: 40,
+              child: ElevatedButton(
+                onPressed: onPressed,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: accentColor,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: Text(buttonLabel, style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.white)),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -633,19 +605,48 @@ class _TransactionScreenState extends State<TransactionScreen>
     Color textColor,
     bool isDark,
   ) {
+    // New backend shape: sender_name, receiver_name, sender_id, receiver_id
     final counterparty = isSent
-        ? (tx['toUser']   ?? tx['toUserId']   ?? 'unknown').toString()
-        : (tx['fromUser'] ?? tx['fromUserId'] ?? 'unknown').toString();
+        ? (tx['receiver_name'] ?? tx['receiver_id'] ?? 'unknown').toString()
+        : (tx['sender_name']   ?? tx['sender_id']   ?? 'unknown').toString();
 
-    final date = tx['createdAt']?.toString().split('T').first ?? '';
-    final time = tx['createdAt']?.toString().contains('T') == true
-        ? tx['createdAt'].toString().split('T').last.substring(0, 5)
+    final date = tx['created_at']?.toString().split('T').first ?? '';
+    final time = tx['created_at']?.toString().contains('T') == true
+        ? tx['created_at'].toString().split('T').last.substring(0, 5)
         : '';
 
-    final yellow = int.tryParse(tx['yellowCoins']?.toString() ?? '0') ?? 0;
-    final green  = int.tryParse(tx['greenCoins']?.toString()  ?? '0') ?? 0;
-    final red    = int.tryParse(tx['redCoins']?.toString()    ?? '0') ?? 0;
-    final note   = tx['note']?.toString() ?? '';
+    final coinType = tx['coin_type']?.toString() ?? 'green';
+    final amount   = double.tryParse(tx['amount']?.toString() ?? '0')?.round() ?? 0;
+    final txType   = tx['transaction_type']?.toString() ?? '';
+    final note     = tx['note']?.toString() ?? '';
+
+    // Determine coin color + icon
+    Color coinColor;
+    String coinAsset;
+    switch (coinType) {
+      case 'green':
+        coinColor = const Color(0xFF43A047);
+        coinAsset = 'assets/images/Green_Coin.png';
+        break;
+      case 'red':
+        coinColor = const Color(0xFFE53935);
+        coinAsset = 'assets/images/Red_Coin.png';
+        break;
+      default:
+        coinColor = const Color(0xFFFFB300);
+        coinAsset = 'assets/images/Yellow_Coin.png';
+        break;
+    }
+
+    // Build label
+    String displayLabel;
+    if (txType == 'mint') {
+      displayLabel = 'Minted ($coinType)';
+    } else if (txType == 'offset') {
+      displayLabel = 'Offset ($coinType)';
+    } else {
+      displayLabel = isSent ? 'To $counterparty' : 'From $counterparty';
+    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -697,24 +698,13 @@ class _TransactionScreenState extends State<TransactionScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Text(
-                      isSent ? 'To ' : 'From ',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: textColor.withOpacity(0.5),
-                      ),
-                    ),
-                    Text(
-                      counterparty,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: textColor,
-                      ),
-                    ),
-                  ],
+                Text(
+                  displayLabel,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    color: textColor,
+                  ),
                 ),
                 if (note.isNotEmpty) ...[
                   const SizedBox(height: 3),
@@ -730,14 +720,8 @@ class _TransactionScreenState extends State<TransactionScreen>
                   ),
                 ],
                 const SizedBox(height: 8),
-                // Coin chips
-                Row(
-                  children: [
-                    if (yellow > 0) _coinChip('assets/images/Yellow_Coin.png', yellow, const Color(0xFFFFB300)),
-                    if (green  > 0) _coinChip('assets/images/Green_Coin.png',  green,  const Color(0xFF43A047)),
-                    if (red    > 0) _coinChip('assets/images/Red_Coin.png',    red,    const Color(0xFFE53935)),
-                  ],
-                ),
+                // Coin chip
+                if (amount > 0) _coinChip(coinAsset, amount, coinColor),
               ],
             ),
           ),
@@ -780,7 +764,9 @@ class _TransactionScreenState extends State<TransactionScreen>
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Image.asset(asset, width: 16, height: 16),
+          Image.asset(asset, width: 16, height: 16,
+            errorBuilder: (_, __, ___) => Icon(Icons.circle, color: accent, size: 16),
+          ),
           const SizedBox(width: 4),
           Text(
             '$amount',

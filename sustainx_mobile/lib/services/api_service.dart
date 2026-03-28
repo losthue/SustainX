@@ -5,17 +5,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiService {
   // Adjust these if your backend is running on a different host/port.
   // If you're using Android emulator use 10.0.2.2 (host machine) and matching port.
-  static const String backendHost = '10.0.0.6';
+  static const String backendHost = '192.168.254.44';
   static const int backendPort = 5000; // set this to your active API port
   static String get baseUrl => 'http://$backendHost:$backendPort/api';
 
   static const String tokenKey = 'energyToken';
-  static const String usernameKey = 'energyUser';
+  static const String userNameKey = 'energyUser';
+  static const String userIdKey = 'energyUserId';
 
-  static Future<void> saveToken(String token, String username) async {
+  static Future<void> saveToken(String token, String name, String userId) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(tokenKey, token);
-    await prefs.setString(usernameKey, username);
+    await prefs.setString(userNameKey, name);
+    await prefs.setString(userIdKey, userId);
   }
 
   static Future<String?> getToken() async {
@@ -25,13 +27,19 @@ class ApiService {
 
   static Future<String?> getUsername() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(usernameKey);
+    return prefs.getString(userNameKey);
+  }
+
+  static Future<String?> getUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(userIdKey);
   }
 
   static Future<void> clearAuth() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(tokenKey);
-    await prefs.remove(usernameKey);
+    await prefs.remove(userNameKey);
+    await prefs.remove(userIdKey);
   }
 
   static Map<String, String> _jsonHeaders([String? token]) {
@@ -41,17 +49,28 @@ class ApiService {
     };
   }
 
-  static Future<Map<String, dynamic>> register(String username, String email, String password) async {
+  // ── Auth ──────────────────────────────────────────────────────────────────
+
+  static Future<Map<String, dynamic>> register(
+      String userId, String userType, String name, String email, String password) async {
     final url = Uri.parse('$baseUrl/auth/register');
     final resp = await http.post(url,
-        headers: _jsonHeaders(), body: jsonEncode({'username': username, 'email': email, 'password': password}));
+        headers: _jsonHeaders(),
+        body: jsonEncode({
+          'user_id': userId,
+          'user_type': userType,
+          'name': name,
+          'email': email,
+          'password': password,
+        }));
     return _handleJsonResponse(resp);
   }
 
-  static Future<Map<String, dynamic>> login(String email, String password) async {
+  static Future<Map<String, dynamic>> login(String userId, String password) async {
     final url = Uri.parse('$baseUrl/auth/login');
     final resp = await http.post(url,
-        headers: _jsonHeaders(), body: jsonEncode({'email': email, 'password': password}));
+        headers: _jsonHeaders(),
+        body: jsonEncode({'user_id': userId, 'password': password}));
     return _handleJsonResponse(resp);
   }
 
@@ -69,6 +88,8 @@ class ApiService {
     return _handleJsonResponse(resp);
   }
 
+  // ── Wallet ────────────────────────────────────────────────────────────────
+
   static Future<Map<String, dynamic>> getWalletInfo() async {
     final token = await getToken();
     final url = Uri.parse('$baseUrl/wallet/info');
@@ -83,17 +104,26 @@ class ApiService {
     return _handleJsonResponse(resp);
   }
 
-  static Future<Map<String, dynamic>> getWalletAddress() async {
+  static Future<Map<String, dynamic>> transferGreenCoins(
+      String receiverId, double amount, {String note = ''}) async {
     final token = await getToken();
-    final url = Uri.parse('$baseUrl/wallet/address');
-    final resp = await http.get(url, headers: _jsonHeaders(token));
+    final url = Uri.parse('$baseUrl/wallet/transfer-green');
+    final resp = await http.post(url,
+        headers: _jsonHeaders(token),
+        body: jsonEncode({
+          'receiver_id': receiverId,
+          'amount': amount,
+          'note': note,
+        }));
     return _handleJsonResponse(resp);
   }
 
-  static Future<Map<String, dynamic>> getQrCode() async {
+  static Future<Map<String, dynamic>> offsetRedCoins(double amount) async {
     final token = await getToken();
-    final url = Uri.parse('$baseUrl/wallet/qr-code');
-    final resp = await http.get(url, headers: _jsonHeaders(token));
+    final url = Uri.parse('$baseUrl/wallet/offset-red');
+    final resp = await http.post(url,
+        headers: _jsonHeaders(token),
+        body: jsonEncode({'amount': amount}));
     return _handleJsonResponse(resp);
   }
 
@@ -104,69 +134,90 @@ class ApiService {
     return _handleJsonResponse(resp);
   }
 
-  static Future<Map<String, dynamic>> getLeaderboardByCoins([int limit = 10]) async {
+  static Future<Map<String, dynamic>> getSystemTotals() async {
     final token = await getToken();
-    final url = Uri.parse('$baseUrl/wallet/leaderboard/coins?limit=$limit');
+    final url = Uri.parse('$baseUrl/wallet/system-totals');
     final resp = await http.get(url, headers: _jsonHeaders(token));
     return _handleJsonResponse(resp);
   }
 
-  static Future<Map<String, dynamic>> getUserRank() async {
+  // ── Weather ────────────────────────────────────────────────────────────────
+
+  static Future<Map<String, dynamic>> getWeatherForecast() async {
     final token = await getToken();
-    final url = Uri.parse('$baseUrl/wallet/rank');
+    final url = Uri.parse('$baseUrl/weather/forecast');
     final resp = await http.get(url, headers: _jsonHeaders(token));
     return _handleJsonResponse(resp);
   }
 
-  static Future<Map<String, dynamic>> recordEnergy(double imported, double exported, {int conversionRate = 10}) async {
+  // ── Energy ────────────────────────────────────────────────────────────────
+
+  static Future<Map<String, dynamic>> getEnergyTotals() async {
+    final token = await getToken();
+    final url = Uri.parse('$baseUrl/energy/totals');
+    final resp = await http.get(url, headers: _jsonHeaders(token));
+    return _handleJsonResponse(resp);
+  }
+
+  static Future<Map<String, dynamic>> getEnergyReadings() async {
+    final token = await getToken();
+    final url = Uri.parse('$baseUrl/energy/readings');
+    final resp = await http.get(url, headers: _jsonHeaders(token));
+    return _handleJsonResponse(resp);
+  }
+
+  static Future<Map<String, dynamic>> getCycleBreakdown() async {
+    final token = await getToken();
+    final url = Uri.parse('$baseUrl/energy/cycles');
+    final resp = await http.get(url, headers: _jsonHeaders(token));
+    return _handleJsonResponse(resp);
+  }
+
+  static Future<Map<String, dynamic>> getCoinGenerationHistory() async {
+    final token = await getToken();
+    final url = Uri.parse('$baseUrl/energy/coin-history');
+    final resp = await http.get(url, headers: _jsonHeaders(token));
+    return _handleJsonResponse(resp);
+  }
+
+  static Future<Map<String, dynamic>> recordEnergy(
+      double importKwh, double exportKwh, int billingCycle) async {
     final token = await getToken();
     final url = Uri.parse('$baseUrl/energy/record');
     final resp = await http.post(url,
         headers: _jsonHeaders(token),
-        body: jsonEncode({'importedKWh': imported, 'exportedKWh': exported, 'conversionRate': conversionRate}));
+        body: jsonEncode({
+          'import_kwh': importKwh,
+          'export_kwh': exportKwh,
+          'billing_cycle': billingCycle,
+        }));
     return _handleJsonResponse(resp);
   }
 
-  static Future<Map<String, dynamic>> getEnergyHistory([int limit = 30]) async {
+  static Future<Map<String, dynamic>> getEnergyRates() async {
     final token = await getToken();
-    final url = Uri.parse('$baseUrl/energy/history?limit=$limit');
+    final url = Uri.parse('$baseUrl/energy/rates');
     final resp = await http.get(url, headers: _jsonHeaders(token));
     return _handleJsonResponse(resp);
   }
 
-  static Future<Map<String, dynamic>> getEnergyStats([int days = 30]) async {
+  static Future<Map<String, dynamic>> generateCoinsForCycle(int billingCycle) async {
     final token = await getToken();
-    final url = Uri.parse('$baseUrl/energy/stats?days=$days');
+    final url = Uri.parse('$baseUrl/energy/generate-coins');
+    final resp = await http.post(url,
+        headers: _jsonHeaders(token),
+        body: jsonEncode({'billing_cycle': billingCycle}));
+    return _handleJsonResponse(resp);
+  }
+
+  static Future<Map<String, dynamic>> getCycleSummary(int cycle) async {
+    final token = await getToken();
+    final url = Uri.parse('$baseUrl/energy/cycle-summary/$cycle');
     final resp = await http.get(url, headers: _jsonHeaders(token));
     return _handleJsonResponse(resp);
   }
 
-  static Future<Map<String, dynamic>> processMeterReadings(List<Map<String, dynamic>> readings) async {
-    final token = await getToken();
-    final url = Uri.parse('$baseUrl/energy/meter-readings');
-    final resp = await http.post(url,
-        headers: _jsonHeaders(token),
-        body: jsonEncode({'readings': readings}));
-    return _handleJsonResponse(resp);
-  }
-
-  static Future<Map<String, dynamic>> updateConversionRate(double newRate) async {
-    final token = await getToken();
-    final url = Uri.parse('$baseUrl/energy/conversion-rate');
-    final resp = await http.put(url,
-        headers: _jsonHeaders(token),
-        body: jsonEncode({'newRate': newRate}));
-    return _handleJsonResponse(resp);
-  }
-
-  static Future<Map<String, dynamic>> transferCoins(String toUserId, {int yellowCoins = 0, int greenCoins = 0, int redCoins = 0, String note = ''}) async {
-    final token = await getToken();
-    final url = Uri.parse('$baseUrl/transactions/transfer');
-    final resp = await http.post(url,
-        headers: _jsonHeaders(token),
-        body: jsonEncode({'toUserId': toUserId, 'yellowCoins': yellowCoins, 'greenCoins': greenCoins, 'redCoins': redCoins, 'note': note}));
-    return _handleJsonResponse(resp);
-  }
+  // ── Transactions ──────────────────────────────────────────────────────────
 
   static Future<Map<String, dynamic>> getTransactionHistory([int limit = 50]) async {
     final token = await getToken();
@@ -196,6 +247,15 @@ class ApiService {
     return _handleJsonResponse(resp);
   }
 
+  static Future<Map<String, dynamic>> getTransactionStats() async {
+    final token = await getToken();
+    final url = Uri.parse('$baseUrl/transactions/stats');
+    final resp = await http.get(url, headers: _jsonHeaders(token));
+    return _handleJsonResponse(resp);
+  }
+
+  // ── Response handler ──────────────────────────────────────────────────────
+
   static Map<String, dynamic> _handleJsonResponse(http.Response resp) {
     final data = jsonDecode(resp.body.isNotEmpty ? resp.body : '{}');
 
@@ -214,5 +274,39 @@ class ApiService {
       'message': data['message'] ?? 'OK',
       'data': data['data'] ?? data,
     };
+  }
+
+  // ── Payments / Stripe ─────────────────────────────────────────────────────
+
+  static Future<Map<String, dynamic>> getPackages() async {
+    final token = await getToken();
+    final url = Uri.parse('$baseUrl/payments/packages');
+    final resp = await http.get(url, headers: _jsonHeaders(token));
+    return _handleJsonResponse(resp);
+  }
+
+  static Future<Map<String, dynamic>> createPaymentIntent(String packageId) async {
+    final token = await getToken();
+    final url = Uri.parse('$baseUrl/payments/create-payment-intent');
+    final resp = await http.post(url,
+        headers: _jsonHeaders(token),
+        body: jsonEncode({'package_id': packageId}));
+    return _handleJsonResponse(resp);
+  }
+
+  static Future<Map<String, dynamic>> confirmPayment(String paymentIntentId) async {
+    final token = await getToken();
+    final url = Uri.parse('$baseUrl/payments/confirm');
+    final resp = await http.post(url,
+        headers: _jsonHeaders(token),
+        body: jsonEncode({'payment_intent_id': paymentIntentId}));
+    return _handleJsonResponse(resp);
+  }
+
+  static Future<Map<String, dynamic>> getPurchaseHistory() async {
+    final token = await getToken();
+    final url = Uri.parse('$baseUrl/payments/history');
+    final resp = await http.get(url, headers: _jsonHeaders(token));
+    return _handleJsonResponse(resp);
   }
 }

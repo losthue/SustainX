@@ -32,6 +32,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool _isLoading = true;
   String _message = '';
   Map<String, dynamic> _walletData = {};
+  Map<String, dynamic> _energyData = {};
+  Map<String, dynamic> _systemData = {};
+  List<dynamic> _recentTransactions = [];
 
   final _sendController = TextEditingController();
   late final AnimationController _ringCtrl;
@@ -45,7 +48,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       duration: const Duration(milliseconds: 1200),
     );
     _ringAnim = CurvedAnimation(parent: _ringCtrl, curve: Curves.easeOutCubic);
-    _loadWallet();
+    _loadDashboard();
   }
 
   @override
@@ -55,26 +58,57 @@ class _DashboardScreenState extends State<DashboardScreen>
     super.dispose();
   }
 
-  Future<void> _loadWallet() async {
+  Future<void> _loadDashboard() async {
     setState(() => _isLoading = true);
-    final result = await ApiService.getWalletInfo();
-    if (result['success'] == true) {
+
+    // Load wallet info
+    final walletResult = await ApiService.getWalletInfo();
+    if (walletResult['success'] != true) {
+      if (walletResult['statusCode'] == 401) {
+        await _logout();
+        return;
+      }
       setState(() {
-        _walletData = Map<String, dynamic>.from(result['data'] ?? {});
-        _message    = '';
-        _isLoading  = false;
+        _message   = walletResult['message']?.toString() ?? 'Unable to load wallet';
+        _isLoading = false;
       });
-      _ringCtrl.forward(from: 0);
       return;
     }
-    if (result['statusCode'] == 401) {
-      await _logout();
-      return;
-    }
+
+    // Load energy totals
+    final energyResult = await ApiService.getEnergyTotals();
+
+    // Load recent transactions
+    final txResult = await ApiService.getTransactionHistory(5);
+
+    // Load system totals (all users)
+    final sysResult = await ApiService.getSystemTotals();
+
     setState(() {
-      _message   = result['message']?.toString() ?? 'Unable to load wallet';
-      _isLoading = false;
+      _walletData = Map<String, dynamic>.from(walletResult['data'] ?? {});
+      if (energyResult['success'] == true) {
+        _energyData = Map<String, dynamic>.from(energyResult['data'] ?? {});
+      }
+      if (txResult['success'] == true) {
+        _recentTransactions = List.from(txResult['data'] ?? []);
+      }
+      if (sysResult['success'] == true) {
+        _systemData = Map<String, dynamic>.from(sysResult['data'] ?? {});
+      }
+      _message    = '';
+      _isLoading  = false;
     });
+    _ringCtrl.forward(from: 0);
+  }
+
+  void _showSnack(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? _C.red : _C.green,
+      ),
+    );
   }
 
   Future<void> _logout() async {
@@ -84,15 +118,24 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   // ── computed helpers ─────────────────────────────────────────
-  String get _username    => _walletData['username']     ?? 'User';
-  int    get _total       => _parseInt(_walletData['totalBalance'] ?? 0);
-  Map    get _balances    => (_walletData['balances']    as Map?) ?? {};
-  int    get _yellow      => _parseInt(_balances['yellowCoins']   ?? 0);
-  int    get _green       => _parseInt(_balances['greenCoins']    ?? 0);
-  int    get _red         => _parseInt(_balances['redCoins']      ?? 0);
+  String get _userName    => _walletData['name']?.toString() ?? 'User';
+  int    get _yellow      => _parseInt(_walletData['yellow_coins'] ?? 0);
+  int    get _green       => _parseInt(_walletData['green_coins']  ?? 0);
+  int    get _red         => _parseInt(_walletData['red_coins']    ?? 0);
+  int    get _total       => _yellow + _green + _red;
+  String get _userType    => _walletData['user_type']?.toString() ?? '';
+
+  double get _totalImportKWh     => _parseDouble(_energyData['total_import_kwh'] ?? 0);
+  double get _totalExportKWh     => _parseDouble(_energyData['total_export_kwh'] ?? 0);
+  double get _netKWh             => _parseDouble(_energyData['net_kwh'] ?? 0);
+
   // export % = greenCoins / total (clamped 0-1)
   double get _exportRatio => _total > 0 ? (_green / _total).clamp(0.0, 1.0) : 0.0;
   int    get _exportCoins => ((_exportRatio) * _total).round();
+
+  // System totals
+  int get _systemYellow => _parseInt(_systemData['total_yellow'] ?? 0);
+  double get _userContribution => _systemYellow > 0 ? (_yellow / _systemYellow).clamp(0.0, 1.0) : 0.0;
 
   // ── type conversion helper ──────────────────────────────────
   int _parseInt(dynamic value) {
@@ -100,6 +143,13 @@ class _DashboardScreenState extends State<DashboardScreen>
     if (value is double) return value.round();
     if (value is String) return int.tryParse(value) ?? 0;
     return 0;
+  }
+
+  double _parseDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0.0;
+    return 0.0;
   }
 
   // ── build ────────────────────────────────────────────────────
@@ -112,7 +162,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               color: _C.violet,
-              onRefresh: _loadWallet,
+              onRefresh: _loadDashboard,
               child: CustomScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
@@ -124,6 +174,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                         if (_message.isNotEmpty) _buildError(),
                         const SizedBox(height: 8),
                         _buildBalanceCard(),
+                        if (_red > 0) ...[const SizedBox(height: 12), _buildRedWarning()],
                         const SizedBox(height: 20),
                         _buildTransferCard(),
                         const SizedBox(height: 20),
@@ -174,7 +225,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     radius: 20,
                     backgroundColor: _C.violet,
                     child: Text(
-                      _username.isNotEmpty ? _username[0].toUpperCase() : 'U',
+                      _userName.isNotEmpty ? _userName[0].toUpperCase() : 'U',
                       style: const TextStyle(
                         color: _C.white,
                         fontWeight: FontWeight.bold,
@@ -210,7 +261,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // date + dropdown
+            // date + user type badge
             Row(
               children: [
                 const Icon(Icons.bolt_rounded, color: _C.yellow, size: 14),
@@ -220,21 +271,28 @@ class _DashboardScreenState extends State<DashboardScreen>
                   style: const TextStyle(color: _C.textMid, fontSize: 12),
                 ),
                 const Spacer(),
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: Colors.white12,
-                    borderRadius: BorderRadius.circular(8),
+                if (_userType.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _userType == 'prosumer' ? _C.green.withOpacity(0.2) : Colors.white12,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      _userType.toUpperCase(),
+                      style: TextStyle(
+                        color: _userType == 'prosumer' ? _C.green : _C.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
-                  child: const Icon(Icons.keyboard_arrow_down_rounded,
-                      color: _C.white, size: 18),
-                ),
               ],
             ),
             const SizedBox(height: 14),
-            // total balance
+            // total system yellow coins
             Text(
-              _fmt(_total),
+              _fmt(_systemYellow),
               style: const TextStyle(
                 color: _C.white,
                 fontSize: 34,
@@ -244,12 +302,13 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
             const SizedBox(height: 4),
             const Text(
-              'Total Yellow Coins',
+              'Total Community Yellow Coins',
               style: TextStyle(color: _C.textMid, fontSize: 13),
             ),
             const SizedBox(height: 20),
-            // monthly export ring + figure
+            // user contribution ring
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 AnimatedBuilder(
                   animation: _ringAnim,
@@ -257,13 +316,13 @@ class _DashboardScreenState extends State<DashboardScreen>
                     width: 60, height: 60,
                     child: CustomPaint(
                       painter: _RingPainter(
-                        progress: _exportRatio * _ringAnim.value,
+                        progress: _userContribution * _ringAnim.value,
                         trackColor: Colors.white12,
-                        fillColor:  _C.green,
+                        fillColor:  _C.yellow,
                       ),
                       child: Center(
                         child: Text(
-                          '${(_exportRatio * 100).round()}%',
+                          '${(_userContribution * 100).round()}%',
                           style: const TextStyle(
                             color: _C.white,
                             fontSize: 11,
@@ -275,26 +334,34 @@ class _DashboardScreenState extends State<DashboardScreen>
                   ),
                 ),
                 const SizedBox(width: 16),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Monthly Energy Export',
-                      style: TextStyle(color: _C.textMid, fontSize: 12),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${_fmt(_exportCoins)} ',
-                      style: const TextStyle(
-                        color: _C.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Your Contribution',
+                        style: TextStyle(color: _C.textMid, fontSize: 12),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 4),
+                      Text(
+                        '${_fmt(_yellow)} yellow coins',
+                        style: const TextStyle(
+                          color: _C.yellow,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'You contributed ${(_userContribution * 100).toStringAsFixed(1)}% of all yellow coins',
+                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
+                      ),
+                    ],
+                  ),
                 ),
-                const Spacer(),
-                _pill('${(_exportRatio * 100).round()}%', _C.green),
+                _pill('${(_userContribution * 100).round()}%', _C.yellow),
               ],
             ),
           ],
@@ -320,17 +387,17 @@ class _DashboardScreenState extends State<DashboardScreen>
                 color: Colors.white24,
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: const Icon(Icons.bolt_rounded, color: _C.white, size: 24),
+              child: const Icon(Icons.eco_rounded, color: _C.white, size: 24),
             ),
             const SizedBox(width: 14),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Amount Transferred this month',
+                const Text('Green Coins Available',
                     style: TextStyle(color: Colors.white70, fontSize: 12)),
                 const SizedBox(height: 4),
                 Text(
-                  _fmt(_yellow),
+                  _fmt(_green),
                   style: const TextStyle(
                     color: _C.white,
                     fontSize: 24,
@@ -350,13 +417,17 @@ class _DashboardScreenState extends State<DashboardScreen>
       );
 
   // ── coin breakdown ───────────────────────────────────────────
-  Widget _buildCoinBreakdown() => Row(
+  Widget _buildCoinBreakdown() => Column(
         children: [
-          Expanded(child: _coinTile('Solar', _green,   _C.green,  _C.greenSoft,  Icons.wb_sunny_rounded, imagePath: 'assets/images/Green_Coin.png')),
-          const SizedBox(width: 12),
-          Expanded(child: _coinTile('Grid',  _yellow,  _C.yellow, _C.yellowSoft, Icons.bolt_rounded, imagePath: 'assets/images/Yellow_Coin.png')),
-          const SizedBox(width: 12),
-          Expanded(child: _coinTile('Usage', _red,     _C.red,    const Color(0xFFFFEBEB), Icons.power_rounded, imagePath: 'assets/images/Red_Coin.png')),
+          Row(
+            children: [
+              Expanded(child: _coinTile('Solar',  _green,  _C.green,  _C.greenSoft,  Icons.wb_sunny_rounded, imagePath: 'assets/images/Green_Coin.png')),
+              const SizedBox(width: 12),
+              Expanded(child: _coinTile('Grid',   _yellow, _C.yellow, _C.yellowSoft, Icons.bolt_rounded, imagePath: 'assets/images/Yellow_Coin.png')),
+              const SizedBox(width: 12),
+              Expanded(child: _coinTile('Usage',  _red,    _C.red,    const Color(0xFFFFEBEB), Icons.power_rounded, imagePath: 'assets/images/Red_Coin.png')),
+            ],
+          ),
         ],
       );
 
@@ -423,7 +494,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                   child: TextField(
                     controller: _sendController,
                     decoration: InputDecoration(
-                      hintText: 'Search username…',
+                      hintText: 'Search user ID…',
                       hintStyle: const TextStyle(color: _C.textMid, fontSize: 14),
                       prefixIcon: const Icon(Icons.search_rounded,
                           color: _C.textMid, size: 20),
@@ -457,6 +528,8 @@ class _DashboardScreenState extends State<DashboardScreen>
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
+                _quickChip('Record Energy', Icons.electric_meter_rounded, '/energy-record'),
+                const SizedBox(width: 10),
                 _quickChip('Prediction', Icons.auto_awesome_rounded, '/prediction'),
                 const SizedBox(width: 10),
                 _quickChip('Forecasting', Icons.trending_up_rounded, '/forecasting'),
@@ -498,7 +571,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget _buildHistoryHeader() => Row(
         children: [
           const Text(
-            'Transfer History',
+            'Recent Transactions',
             style: TextStyle(
               color: _C.textDark,
               fontSize: 16,
@@ -518,39 +591,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       );
 
   Widget _buildHistoryList() {
-    // Build mock history from wallet address for display purposes;
-    // real history comes from the transactions route.
-    final walletAddress = _walletData['walletAddress']?.toString() ?? '';
-    final energyScore   = _walletData['energyScore']  ?? 0;
-
-    final items = [
-      _HistoryItem(
-        label:  'Energy Export Reward',
-        sub:    _shortDate(DateTime.now().subtract(const Duration(days: 1))),
-        amount: _exportCoins,
-        icon:   Icons.wb_sunny_rounded,
-        color:  _C.green,
-        credit: true,
-      ),
-      _HistoryItem(
-        label:  'Grid Purchase',
-        sub:    _shortDate(DateTime.now().subtract(const Duration(days: 3))),
-        amount: _yellow,
-        icon:   Icons.bolt_rounded,
-        color:  _C.yellow,
-        credit: true,
-      ),
-      _HistoryItem(
-        label:  'Consumption Deduction',
-        sub:    _shortDate(DateTime.now().subtract(const Duration(days: 5))),
-        amount: _red,
-        icon:   Icons.power_rounded,
-        color:  _C.red,
-        credit: false,
-      ),
-    ];
-
-    if (walletAddress.isEmpty && energyScore == 0 && _total == 0) {
+    if (_recentTransactions.isEmpty && _total == 0) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(24),
@@ -558,6 +599,89 @@ class _DashboardScreenState extends State<DashboardScreen>
         ),
       );
     }
+
+    // Show real transactions if available
+    if (_recentTransactions.isNotEmpty) {
+      return Column(
+        children: _recentTransactions.map((tx) {
+          final map = Map<String, dynamic>.from(tx);
+          final type = map['transaction_type']?.toString() ?? 'transfer';
+          final coinType = map['coin_type']?.toString() ?? 'green';
+          final amount = _parseInt(map['amount'] ?? 0);
+          final date = map['created_at']?.toString().split('T').first ?? '';
+          final senderName = map['sender_name']?.toString() ?? '';
+          final receiverName = map['receiver_name']?.toString() ?? '';
+
+          IconData icon;
+          Color color;
+          String label;
+          bool credit = false;
+
+          switch (type) {
+            case 'mint':
+              icon = Icons.stars_rounded;
+              color = _C.yellow;
+              label = 'Coin Minted ($coinType)';
+              credit = true;
+              break;
+            case 'transfer':
+              icon = Icons.swap_horiz_rounded;
+              color = _C.green;
+              label = senderName == _userName ? 'Sent to $receiverName' : 'Received from $senderName';
+              credit = senderName != _userName;
+              break;
+            case 'offset':
+              icon = Icons.recycling_rounded;
+              color = _C.violet;
+              label = 'Red Coin Offset';
+              credit = false;
+              break;
+            default:
+              icon = Icons.receipt_rounded;
+              color = _C.textMid;
+              label = type;
+              break;
+          }
+
+          return _buildHistoryTile(_HistoryItem(
+            label: label,
+            sub: date,
+            amount: amount,
+            icon: icon,
+            color: color,
+            credit: credit,
+          ));
+        }).toList(),
+      );
+    }
+
+    // Fallback to summary tiles from wallet data
+    final items = [
+      _HistoryItem(
+        label:  'Green Coins',
+        sub:    _shortDate(DateTime.now()),
+        amount: _green,
+        icon:   Icons.wb_sunny_rounded,
+        color:  _C.green,
+        credit: true,
+      ),
+      _HistoryItem(
+        label:  'Yellow Coins',
+        sub:    _shortDate(DateTime.now()),
+        amount: _yellow,
+        icon:   Icons.bolt_rounded,
+        color:  _C.yellow,
+        credit: true,
+      ),
+      _HistoryItem(
+        label:  'Red Coins (Grid Debt)',
+        sub:    _shortDate(DateTime.now()),
+        amount: _red,
+        icon:   Icons.power_rounded,
+        color:  _C.red,
+        credit: false,
+      ),
+    ];
 
     return Column(
       children: items.map(_buildHistoryTile).toList(),
@@ -631,7 +755,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                       radius: 30,
                       backgroundColor: _C.violet,
                       child: Text(
-                        _username.isNotEmpty ? _username[0].toUpperCase() : 'U',
+                        _userName.isNotEmpty ? _userName[0].toUpperCase() : 'U',
                         style: const TextStyle(
                             color: _C.white,
                             fontSize: 24,
@@ -639,12 +763,12 @@ class _DashboardScreenState extends State<DashboardScreen>
                       ),
                     ),
                     const SizedBox(height: 10),
-                    Text(_username,
+                    Text(_userName,
                         style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
                             color: _C.textDark)),
-                    Text(_walletData['walletAddress']?.toString() ?? '',
+                    Text(_userType.isNotEmpty ? _userType.toUpperCase() : '',
                         style: const TextStyle(color: _C.textMid, fontSize: 11),
                         overflow: TextOverflow.ellipsis),
                   ],
@@ -652,6 +776,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
               const Divider(height: 1),
               const SizedBox(height: 8),
+              _drawerTile(Icons.electric_meter_rounded, 'Record Energy', '/energy-record'),
               _drawerTile(Icons.auto_awesome_rounded, 'AI Prediction', '/prediction'),
               _drawerTile(Icons.trending_up_rounded, 'AI Forecasting', '/forecasting'),
               _drawerTile(Icons.swap_horiz_rounded, 'Transactions', '/transactions'),
@@ -686,6 +811,49 @@ class _DashboardScreenState extends State<DashboardScreen>
             style: const TextStyle(
                 color: _C.textDark, fontWeight: FontWeight.w500)),
         onTap: () => Navigator.pushNamed(context, route),
+      );
+
+  // ── red coin warning ─────────────────────────────────────────
+  Widget _buildRedWarning() => GestureDetector(
+        onTap: () => Navigator.pushNamed(context, '/transactions'),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFEBEB),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _C.red.withOpacity(0.3)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded, color: _C.red, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Grid Debt Alert',
+                      style: TextStyle(
+                        color: _C.red,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'You have ${_fmt(_red)} red coins. Use green coins to offset!',
+                      style: TextStyle(
+                        color: _C.red.withOpacity(0.8),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: _C.red, size: 20),
+            ],
+          ),
+        ),
       );
 
   // ── error banner ─────────────────────────────────────────────

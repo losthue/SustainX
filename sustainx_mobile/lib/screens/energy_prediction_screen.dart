@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 
 // ── Shared palette ─────────────────────────────────────────────────────────
@@ -7,8 +7,8 @@ const _kPink   = Color(0xFFE91E8C);
 const _kPurple = Color(0xFF9C27B0);
 const _kBlue   = Color(0xFF5B8CFF);
 const _kGreen  = Color(0xFF43A047);
-const _kOrange = Color(0xFFFF9800);
 const _kYellow = Color(0xFFFFCC00);
+const _kRed    = Color(0xFFE53935);
 
 const _gradientColors = [_kPink, _kPurple];
 
@@ -44,37 +44,6 @@ class _GradientBoxBorder extends BoxBorder {
   @override ShapeBorder scale(double t) => this;
 }
 
-// ── Models ─────────────────────────────────────────────────────────────────
-class _EnergyPrediction {
-  final String period;      // "Today", "This Week", "This Month"
-  final double predicted;   // Predicted kWh
-  final double historical;  // Historical average
-  final String trend;       // "up", "down", "stable"
-
-  const _EnergyPrediction({
-    required this.period,
-    required this.predicted,
-    required this.historical,
-    required this.trend,
-  });
-}
-
-class _EnergySavingTip {
-  final String title;
-  final String description;
-  final IconData icon;
-  final Color color;
-  final double potentialSavings; // MUR per month
-
-  const _EnergySavingTip({
-    required this.title,
-    required this.description,
-    required this.icon,
-    required this.color,
-    required this.potentialSavings,
-  });
-}
-
 // ── Screen ─────────────────────────────────────────────────────────────────
 class EnergyPredictionScreen extends StatefulWidget {
   const EnergyPredictionScreen({super.key});
@@ -87,100 +56,72 @@ class _EnergyPredictionScreenState extends State<EnergyPredictionScreen> {
   bool _isLoading = true;
   String _message = '';
   bool _msgIsError = false;
-  Map<String, dynamic> _userData = {};
-  late List<_EnergyPrediction> _predictions;
-  late List<_EnergySavingTip> _tips;
+
+  // Weather data
+  Map<String, dynamic> _current = {};
+  Map<String, dynamic> _currentRates = {};
+  Map<String, dynamic> _baseRates = {};
+  List<dynamic> _forecast = [];
+  String _solarForecast = '';
 
   @override
   void initState() {
     super.initState();
-    _initializeData();
-    _loadData();
+    _loadWeather();
   }
 
-  void _initializeData() {
-    // Mock predictions data
-    _predictions = [
-      const _EnergyPrediction(
-        period: 'Today',
-        predicted: 12.5,
-        historical: 11.2,
-        trend: 'up',
-      ),
-      const _EnergyPrediction(
-        period: 'This Week',
-        predicted: 78.3,
-        historical: 75.4,
-        trend: 'up',
-      ),
-      const _EnergyPrediction(
-        period: 'This Month',
-        predicted: 310.0,
-        historical: 298.5,
-        trend: 'stable',
-      ),
-    ];
-
-    // Mock energy-saving tips
-    _tips = [
-      const _EnergySavingTip(
-        title: 'Optimize AC Usage',
-        description: 'Based on weather, reduce AC by 2°C during off-peak hours (10 PM - 6 AM).',
-        icon: Icons.air_rounded,
-        color: _kBlue,
-        potentialSavings: 150,
-      ),
-      const _EnergySavingTip(
-        title: 'Peak Hours Shift',
-        description: 'Shift laundry & dishwashing to 11 PM - 6 AM for lower rates.',
-        icon: Icons.local_laundry_service_rounded,
-        color: _kOrange,
-        potentialSavings: 200,
-      ),
-      const _EnergySavingTip(
-        title: 'LED Upgrade',
-        description: 'Replace remaining incandescent bulbs with LED (80% energy reduction).',
-        icon: Icons.lightbulb_rounded,
-        color: _kYellow,
-        potentialSavings: 120,
-      ),
-      const _EnergySavingTip(
-        title: 'Solar Production Peak',
-        description: 'Use high-draw appliances between 9 AM - 4 PM when solar is strongest.',
-        icon: Icons.wb_sunny_rounded,
-        color: _kGreen,
-        potentialSavings: 180,
-      ),
-    ];
-  }
-
-  Future<void> _loadData() async {
+  Future<void> _loadWeather() async {
     setState(() { _isLoading = true; _message = ''; });
 
-    final result = await ApiService.getWalletInfo();
+    final res = await ApiService.getWeatherForecast();
 
-    if (result['success'] == true) {
+    if (res['success'] == true) {
+      final data = res['data'] as Map<String, dynamic>? ?? {};
       setState(() {
-        _userData = Map<String, dynamic>.from(result['data'] ?? {});
-        _isLoading = false;
+        _current      = Map<String, dynamic>.from(data['current'] ?? {});
+        _currentRates = Map<String, dynamic>.from(data['current_rates'] ?? {});
+        _baseRates    = Map<String, dynamic>.from(data['base_rates'] ?? {});
+        _forecast     = List.from(data['forecast'] ?? []);
+        _solarForecast = data['solar_forecast']?.toString() ?? '';
+        _isLoading    = false;
       });
-      return;
+    } else {
+      setState(() {
+        _isLoading  = false;
+        _message    = res['message']?.toString() ?? 'Unable to fetch weather';
+        _msgIsError = true;
+      });
     }
+  }
 
-    setState(() {
-      _isLoading  = false;
-      _message    = result['message']?.toString() ?? 'Unable to load data';
-      _msgIsError = true;
-    });
+  double _toDouble(dynamic v) {
+    if (v is double) return v;
+    if (v is int) return v.toDouble();
+    if (v is String) return double.tryParse(v) ?? 0;
+    return 0;
+  }
+
+  IconData _weatherIcon(String? icon) {
+    switch (icon) {
+      case 'clear':         return Icons.wb_sunny_rounded;
+      case 'partly_cloudy': return Icons.cloud_queue_rounded;
+      case 'cloudy':        return Icons.cloud_rounded;
+      case 'fog':           return Icons.foggy;
+      case 'rain':          return Icons.water_drop_rounded;
+      case 'snow':          return Icons.ac_unit_rounded;
+      case 'showers':       return Icons.grain_rounded;
+      case 'thunderstorm':  return Icons.flash_on_rounded;
+      default:              return Icons.cloud_rounded;
+    }
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final isDark      = Theme.of(context).brightness == Brightness.dark;
-    final bgColor     = isDark ? const Color(0xFF121212) : const Color(0xFFF8F0FF);
-    final textColor   = isDark ? Colors.white : Colors.black87;
-    final surfaceColor= isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final isDark       = Theme.of(context).brightness == Brightness.dark;
+    final bgColor      = isDark ? const Color(0xFF121212) : const Color(0xFFF8F0FF);
+    final textColor    = isDark ? Colors.white : Colors.black87;
+    final surfaceColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -210,27 +151,48 @@ class _EnergyPredictionScreenState extends State<EnergyPredictionScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _loadData,
+              onRefresh: _loadWeather,
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // ── Status message ────────────────────────────────────
                     if (_message.isNotEmpty) _buildMessageBanner(),
                     const SizedBox(height: 8),
 
-                    // ── Weather & Forecast ────────────────────────────────
-                    _buildWeatherCard(surfaceColor, textColor, isDark),
+                    // Weather card
+                    _buildWeatherCard(textColor),
                     const SizedBox(height: 20),
 
-                    // ── Predictions ───────────────────────────────────────
-                    _buildPredictionsSection(surfaceColor, textColor, isDark),
-                    const SizedBox(height: 24),
+                    // Current rates card
+                    _buildCurrentRatesCard(surfaceColor, textColor),
+                    const SizedBox(height: 20),
 
-                    // ── AI Tips ────────────────────────────────────────────
-                    _buildTipsSection(surfaceColor, textColor, isDark),
+                    // Line graph: Yellow coin rates
+                    _buildRateGraph(
+                      title: 'Yellow Coin Rate (7-day)',
+                      color: _kYellow,
+                      rateKey: 'yellow_rate',
+                      baseRate: _toDouble(_baseRates['yellow'] ?? 1.0),
+                      surfaceColor: surfaceColor,
+                      textColor: textColor,
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Line graph: Green coin rates
+                    _buildRateGraph(
+                      title: 'Green Coin Rate (7-day)',
+                      color: _kGreen,
+                      rateKey: 'green_rate',
+                      baseRate: _toDouble(_baseRates['green'] ?? 0.5),
+                      surfaceColor: surfaceColor,
+                      textColor: textColor,
+                    ),
+                    const SizedBox(height: 20),
+
+                    // 7-day forecast strip
+                    _buildForecastStrip(surfaceColor, textColor),
                   ],
                 ),
               ),
@@ -273,8 +235,15 @@ class _EnergyPredictionScreenState extends State<EnergyPredictionScreen> {
     );
   }
 
-  // ── Weather & Forecast Card ───────────────────────────────────────────────
-  Widget _buildWeatherCard(Color surface, Color textColor, bool isDark) {
+  // ── Weather Card ──────────────────────────────────────────────────────────
+  Widget _buildWeatherCard(Color textColor) {
+    final temp = _toDouble(_current['temperature']);
+    final humidity = _toDouble(_current['humidity']).round();
+    final wind = _toDouble(_current['wind_speed']);
+    final desc = _current['weather_description']?.toString() ?? 'Unknown';
+    final icon = _current['weather_icon']?.toString() ?? 'cloud';
+    final multiplier = _toDouble(_current['solar_multiplier']);
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -298,208 +267,218 @@ class _EnergyPredictionScreenState extends State<EnergyPredictionScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    'Weather Forecast',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Live Weather · Mauritius',
+                      style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500),
                     ),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    'Partly Cloudy',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
+                    const SizedBox(height: 4),
+                    Text(
+                      desc,
+                      style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-              Icon(Icons.cloud_rounded, color: Colors.white, size: 40),
+              const SizedBox(width: 12),
+              Icon(_weatherIcon(icon), color: Colors.white, size: 40),
             ],
           ),
           const SizedBox(height: 12),
           Row(
             children: [
               Text(
-                '28°C',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
+                '${temp.toStringAsFixed(1)}°C',
+                style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Text(
-                      'Humidity: 65%',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      'Wind: 12 km/h',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
+                  children: [
+                    Text('Humidity: $humidity%',
+                        style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                    const SizedBox(height: 4),
+                    Text('Wind: ${wind.toStringAsFixed(1)} km/h',
+                        style: const TextStyle(color: Colors.white70, fontSize: 12)),
                   ],
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.white24,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Text(
-              '⚡ Low solar production expected',
-              style: TextStyle(color: Colors.white, fontSize: 12),
-            ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '⚡ $_solarForecast',
+                  style: const TextStyle(color: Colors.white, fontSize: 11),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  // ── Predictions Section ───────────────────────────────────────────────────
-  Widget _buildPredictionsSection(Color surface, Color textColor, bool isDark) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Energy Predictions',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            fontSize: 18,
-            color: textColor,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Column(
-          children: _predictions.map((pred) => _buildPredictionCard(pred, surface, textColor, isDark)).toList(),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPredictionCard(_EnergyPrediction pred, Color surface, Color textColor, bool isDark) {
-    final isUp = pred.trend == 'up';
-    final diff = pred.predicted - pred.historical;
-    final color = isUp ? Colors.orange : _kGreen;
+  // ── Current Rates Card ────────────────────────────────────────────────────
+  Widget _buildCurrentRatesCard(Color surface, Color textColor) {
+    final yellowRate = _toDouble(_currentRates['yellow']);
+    final greenRate  = _toDouble(_currentRates['green']);
+    final yellowBase = _toDouble(_baseRates['yellow'] ?? 1.0);
+    final greenBase  = _toDouble(_baseRates['green'] ?? 0.5);
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: surface,
         borderRadius: BorderRadius.circular(16),
         border: _GradientBoxBorder(
-          gradient: LinearGradient(colors: [color, color.withOpacity(0.5)]),
+          gradient: const LinearGradient(colors: _gradientColors),
           width: 1.5,
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text('Today\'s Adjusted Rates',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: textColor)),
+          const SizedBox(height: 4),
+          Text('Weather affects solar energy rarity → coin multipliers adjust',
+              style: TextStyle(fontSize: 11, color: textColor.withOpacity(0.5))),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(child: _rateChip('🟡 Yellow', yellowRate, yellowBase, _kYellow)),
+              const SizedBox(width: 12),
+              Expanded(child: _rateChip('🟢 Green', greenRate, greenBase, _kGreen)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _rateChip(String label, double rate, double base, Color color) {
+    final boosted = rate > base;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color)),
+          const SizedBox(height: 6),
+          Text(
+            '${rate.toStringAsFixed(2)}×',
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: color),
+          ),
+          const SizedBox(height: 4),
+          if (boosted)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '↑ +${((rate - base) / base * 100).round()}% boost',
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color),
+              ),
+            )
+          else
+            Text('Base rate', style: TextStyle(fontSize: 10, color: color.withOpacity(0.6))),
+        ],
+      ),
+    );
+  }
+
+  // ── Line Graph Card ───────────────────────────────────────────────────────
+  Widget _buildRateGraph({
+    required String title,
+    required Color color,
+    required String rateKey,
+    required double baseRate,
+    required Color surfaceColor,
+    required Color textColor,
+  }) {
+    final rates = _forecast.map((f) => _toDouble(f[rateKey])).toList();
+    if (rates.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 8, height: 8,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 8),
+              Text(title,
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: textColor)),
+              const Spacer(),
+              Text(
+                'Base: ${baseRate.toStringAsFixed(2)}×',
+                style: TextStyle(fontSize: 11, color: textColor.withOpacity(0.4)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 140,
+            child: CustomPaint(
+              size: Size.infinite,
+              painter: _LineGraphPainter(
+                values: rates,
+                baseValue: baseRate,
+                lineColor: color,
+                labels: _forecast.map((f) {
+                  final d = f['date']?.toString() ?? '';
+                  return d.length >= 10 ? d.substring(5) : d; // "MM-DD"
+                }).toList(),
+                textColor: textColor.withOpacity(0.5),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                pred.period,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                  color: textColor,
-                ),
+                'Min: ${rates.reduce(math.min).toStringAsFixed(2)}×',
+                style: TextStyle(fontSize: 11, color: textColor.withOpacity(0.5)),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      isUp ? Icons.trending_up_rounded : Icons.trending_down_rounded,
-                      color: color,
-                      size: 14,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${isUp ? '+' : ''}${diff.toStringAsFixed(1)} kWh',
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
+              Text(
+                'Max: ${rates.reduce(math.max).toStringAsFixed(2)}×',
+                style: TextStyle(fontSize: 11, color: textColor.withOpacity(0.5)),
               ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Predicted',
-                    style: TextStyle(color: textColor.withOpacity(0.6), fontSize: 11),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${pred.predicted.toStringAsFixed(1)} kWh',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: textColor,
-                    ),
-                  ),
-                ],
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Historical Avg',
-                    style: TextStyle(color: textColor.withOpacity(0.6), fontSize: 11),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${pred.historical.toStringAsFixed(1)} kWh',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: textColor,
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(
-                width: 60,
-                height: 36,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: LinearProgressIndicator(
-                    value: (pred.predicted / 400).clamp(0.0, 1.0),
-                    minHeight: 36,
-                    backgroundColor: color.withOpacity(0.1),
-                    valueColor: AlwaysStoppedAnimation(color),
-                  ),
-                ),
+              Text(
+                'Avg: ${(rates.reduce((a, b) => a + b) / rates.length).toStringAsFixed(2)}×',
+                style: TextStyle(fontSize: 11, color: textColor.withOpacity(0.5)),
               ),
             ],
           ),
@@ -508,102 +487,191 @@ class _EnergyPredictionScreenState extends State<EnergyPredictionScreen> {
     );
   }
 
-  // ── AI Tips Section ───────────────────────────────────────────────────────
-  Widget _buildTipsSection(Color surface, Color textColor, bool isDark) {
+  // ── 7-day Forecast Strip ──────────────────────────────────────────────────
+  Widget _buildForecastStrip(Color surface, Color textColor) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'AI-Powered Recommendations',
-          style: TextStyle(
-            fontWeight: FontWeight.w900,
-            fontSize: 18,
-            color: textColor,
-          ),
-        ),
+        Text('7-Day Forecast',
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: textColor)),
         const SizedBox(height: 12),
-        Column(
-          children: _tips.map((tip) => _buildTipCard(tip, surface, textColor, isDark)).toList(),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: _forecast.map((f) {
+              final date = f['date']?.toString() ?? '';
+              final dayLabel = date.length >= 10 ? date.substring(5) : date;
+              final icon = f['weather_icon']?.toString() ?? 'cloud';
+              final tMax = _toDouble(f['temp_max']);
+              final tMin = _toDouble(f['temp_min']);
+              final yRate = _toDouble(f['yellow_rate']);
+              final gRate = _toDouble(f['green_rate']);
+              final multi = _toDouble(f['solar_multiplier']);
+              final boosted = multi > 1.2;
+
+              return Container(
+                width: 100,
+                margin: const EdgeInsets.only(right: 10),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: surface,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: boosted ? _kYellow.withOpacity(0.5) : textColor.withOpacity(0.08),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Text(dayLabel,
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: textColor)),
+                    const SizedBox(height: 6),
+                    Icon(_weatherIcon(icon), color: _kBlue, size: 24),
+                    const SizedBox(height: 4),
+                    Text('${tMax.round()}° / ${tMin.round()}°',
+                        style: TextStyle(fontSize: 11, color: textColor.withOpacity(0.6))),
+                    const SizedBox(height: 8),
+                    Text('🟡 ${yRate.toStringAsFixed(2)}×',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: _kYellow)),
+                    const SizedBox(height: 2),
+                    Text('🟢 ${gRate.toStringAsFixed(2)}×',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: _kGreen)),
+                    if (boosted) ...[
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: _kYellow.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text('${multi.toStringAsFixed(1)}×',
+                            style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: _kYellow)),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
         ),
       ],
     );
   }
+}
 
-  Widget _buildTipCard(_EnergySavingTip tip, Color surface, Color textColor, bool isDark) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(16),
-        border: _GradientBoxBorder(
-          gradient: LinearGradient(
-            colors: [tip.color, tip.color.withOpacity(0.5)],
-          ),
-          width: 1.5,
+// ── Line Graph Painter ──────────────────────────────────────────────────────
+class _LineGraphPainter extends CustomPainter {
+  final List<double> values;
+  final double baseValue;
+  final Color lineColor;
+  final List<String> labels;
+  final Color textColor;
+
+  _LineGraphPainter({
+    required this.values,
+    required this.baseValue,
+    required this.lineColor,
+    required this.labels,
+    required this.textColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (values.isEmpty) return;
+
+    final n = values.length;
+    final minVal = values.reduce(math.min) - 0.1;
+    final maxVal = values.reduce(math.max) + 0.1;
+    final range = maxVal - minVal;
+
+    final leftPad = 32.0;
+    final bottomPad = 20.0;
+    final graphW = size.width - leftPad;
+    final graphH = size.height - bottomPad;
+
+    // ─ Base rate dashed line ─
+    final baseY = graphH - ((baseValue - minVal) / range) * graphH;
+    final dashPaint = Paint()
+      ..color = textColor.withOpacity(0.3)
+      ..strokeWidth = 1;
+    for (double x = leftPad; x < size.width; x += 8) {
+      canvas.drawLine(Offset(x, baseY), Offset(x + 4, baseY), dashPaint);
+    }
+
+    // Base label
+    final baseTp = TextPainter(
+      text: TextSpan(text: 'base', style: TextStyle(color: textColor, fontSize: 9)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    baseTp.paint(canvas, Offset(0, baseY - 6));
+
+    // ─ Points & line ─
+    final linePaint = Paint()
+      ..color = lineColor
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final fillPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [lineColor.withOpacity(0.3), lineColor.withOpacity(0.0)],
+      ).createShader(Rect.fromLTWH(leftPad, 0, graphW, graphH));
+
+    final path = Path();
+    final fillPath = Path();
+    final points = <Offset>[];
+
+    for (int i = 0; i < n; i++) {
+      final x = leftPad + (i / (n - 1)) * graphW;
+      final y = graphH - ((values[i] - minVal) / range) * graphH;
+      points.add(Offset(x, y));
+
+      if (i == 0) {
+        path.moveTo(x, y);
+        fillPath.moveTo(x, graphH);
+        fillPath.lineTo(x, y);
+      } else {
+        path.lineTo(x, y);
+        fillPath.lineTo(x, y);
+      }
+    }
+
+    fillPath.lineTo(leftPad + graphW, graphH);
+    fillPath.close();
+    canvas.drawPath(fillPath, fillPaint);
+    canvas.drawPath(path, linePaint);
+
+    // ─ Dots & labels ─
+    final dotPaint = Paint()..color = lineColor;
+    final dotBg = Paint()..color = Colors.white;
+
+    for (int i = 0; i < points.length; i++) {
+      final p = points[i];
+      canvas.drawCircle(p, 5, dotBg);
+      canvas.drawCircle(p, 3.5, dotPaint);
+
+      // Value label
+      final tp = TextPainter(
+        text: TextSpan(
+          text: values[i].toStringAsFixed(2),
+          style: TextStyle(color: lineColor, fontSize: 9, fontWeight: FontWeight.bold),
         ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48, height: 48,
-            decoration: BoxDecoration(
-              color: tip.color.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(tip.icon, color: tip.color, size: 24),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  tip.title,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                    color: textColor,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  tip.description,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: textColor.withOpacity(0.7),
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                'Save',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: textColor.withOpacity(0.6),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'MUR ${tip.potentialSavings.toStringAsFixed(0)}',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                  color: tip.color,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, Offset(p.dx - tp.width / 2, p.dy - 16));
+
+      // Date label
+      if (i < labels.length) {
+        final dp = TextPainter(
+          text: TextSpan(text: labels[i], style: TextStyle(color: textColor, fontSize: 9)),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        dp.paint(canvas, Offset(p.dx - dp.width / 2, graphH + 4));
+      }
+    }
   }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
