@@ -180,17 +180,6 @@ class _EnergyPredictionScreenState extends State<EnergyPredictionScreen> {
                     ),
                     const SizedBox(height: 20),
 
-                    // Line graph: Green coin rates
-                    _buildRateGraph(
-                      title: 'Green Coin Rate (7-day)',
-                      color: _kGreen,
-                      rateKey: 'green_rate',
-                      baseRate: _toDouble(_baseRates['green'] ?? 0.5),
-                      surfaceColor: surfaceColor,
-                      textColor: textColor,
-                    ),
-                    const SizedBox(height: 20),
-
                     // 7-day forecast strip
                     _buildForecastStrip(surfaceColor, textColor),
                   ],
@@ -337,9 +326,7 @@ class _EnergyPredictionScreenState extends State<EnergyPredictionScreen> {
   // ── Current Rates Card ────────────────────────────────────────────────────
   Widget _buildCurrentRatesCard(Color surface, Color textColor) {
     final yellowRate = _toDouble(_currentRates['yellow']);
-    final greenRate  = _toDouble(_currentRates['green']);
     final yellowBase = _toDouble(_baseRates['yellow'] ?? 1.0);
-    final greenBase  = _toDouble(_baseRates['green'] ?? 0.5);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -357,14 +344,12 @@ class _EnergyPredictionScreenState extends State<EnergyPredictionScreen> {
           Text('Today\'s Adjusted Rates',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: textColor)),
           const SizedBox(height: 4),
-          Text('Weather affects solar energy rarity → coin multipliers adjust',
+          Text('Weather affects solar energy rarity → yellow coin multipliers adjust',
               style: TextStyle(fontSize: 11, color: textColor.withOpacity(0.5))),
           const SizedBox(height: 14),
           Row(
             children: [
               Expanded(child: _rateChip('🟡 Yellow', yellowRate, yellowBase, _kYellow)),
-              const SizedBox(width: 12),
-              Expanded(child: _rateChip('🟢 Green', greenRate, greenBase, _kGreen)),
             ],
           ),
         ],
@@ -505,7 +490,6 @@ class _EnergyPredictionScreenState extends State<EnergyPredictionScreen> {
               final tMax = _toDouble(f['temp_max']);
               final tMin = _toDouble(f['temp_min']);
               final yRate = _toDouble(f['yellow_rate']);
-              final gRate = _toDouble(f['green_rate']);
               final multi = _toDouble(f['solar_multiplier']);
               final boosted = multi > 1.2;
 
@@ -532,9 +516,6 @@ class _EnergyPredictionScreenState extends State<EnergyPredictionScreen> {
                     const SizedBox(height: 8),
                     Text('🟡 ${yRate.toStringAsFixed(2)}×',
                         style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: _kYellow)),
-                    const SizedBox(height: 2),
-                    Text('🟢 ${gRate.toStringAsFixed(2)}×',
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: _kGreen)),
                     if (boosted) ...[
                       const SizedBox(height: 4),
                       Container(

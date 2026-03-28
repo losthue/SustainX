@@ -9,7 +9,7 @@ A Node.js backend application for the EnergyPass mobile application. This system
 - **Energy Conversion**: Convert kWh data into digital coins automatically
 - **Peer-to-Peer Transfers**: Secure coin transfers between users
 - **QR Code Generation**: Easy wallet sharing via QR codes
-- **Gamification**: Energy score system with leaderboards
+- **Gamification**: Yellow coin leaderboard rankings
 - **Real-time Transactions**: Track all user transactions
 - **Energy Analytics**: Historical energy data and statistics
 
@@ -225,7 +225,7 @@ Response:
 }
 ```
 
-#### Get Leaderboard (by Energy Score)
+#### Get Leaderboard (by Yellow Coins)
 ```
 GET /wallet/leaderboard?limit=10
 Authorization: Bearer {token}
@@ -236,11 +236,11 @@ Response:
   "data": [
     {
       "rank": 1,
-      "username": "top_user",
-      "energyScore": 1000,
-      "balances": {...},
-      "totalBalance": 500,
-      "profileImage": "url"
+      "user_id": "PR001",
+      "name": "Prosumer 01",
+      "total_yellow": 25.5,
+      "available_green": 10.0,
+      "grid_debt": 5.0
     },
     ...
   ]

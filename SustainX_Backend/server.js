@@ -12,7 +12,7 @@ const weatherRoutes = require('./routes/weatherRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 
 // Import Sequelize connection
-const { testConnection } = require('./config/db');
+const { testConnection, ensureSchema } = require('./config/db');
 
 // Initialize Express app
 const app = express();
@@ -26,6 +26,7 @@ app.use(express.urlencoded({ extended: true }));
 const connectDB = async () => {
     try {
         await testConnection();
+        await ensureSchema();
         console.log('✓ MySQL connection ready (schema managed by SQL)');
     } catch (err) {
         console.error('✗ MySQL connection failed:', err.message);

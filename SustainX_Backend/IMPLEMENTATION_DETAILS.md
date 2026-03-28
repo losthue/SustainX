@@ -95,7 +95,7 @@ PUT    /api/auth/profile           (protected)
 - **Multi-Coin Wallet**: Yellow, Green, Red coins
 - **Balance Tracking**: Real-time balance updates
 - **QR Code Generation**: Easy wallet sharing
-- **Leaderboards**: Top users by score/coins
+- **Leaderboards**: Top users by yellow coins
 - **User Rankings**: Personal ranking system
 
 **Endpoints**:
@@ -209,7 +209,7 @@ GET    /api/transactions/:id       (protected)
 - `getWallet()` - Wallet information
 - `getBalance()` - Current balances
 - `generateQRCode()` - QR code generation
-- `getLeaderboard()` - Top users by score
+- `getLeaderboard()` - Top users by yellow coins (current holdings)
 - `getLeaderboardByCoins()` - Top users by coins
 - `getUserRank()` - User's rank
 - `getWalletAddress()` - Wallet address

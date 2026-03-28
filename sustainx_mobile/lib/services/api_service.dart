@@ -90,6 +90,13 @@ class ApiService {
 
   // ── Wallet ────────────────────────────────────────────────────────────────
 
+  static Future<Map<String, dynamic>> getCoinValues() async {
+    final token = await getToken();
+    final url = Uri.parse('$baseUrl/wallet/coin-values');
+    final resp = await http.get(url, headers: _jsonHeaders(token));
+    return _handleJsonResponse(resp);
+  }
+
   static Future<Map<String, dynamic>> getWalletInfo() async {
     final token = await getToken();
     final url = Uri.parse('$baseUrl/wallet/info');
@@ -101,6 +108,31 @@ class ApiService {
     final token = await getToken();
     final url = Uri.parse('$baseUrl/wallet/balance');
     final resp = await http.get(url, headers: _jsonHeaders(token));
+    return _handleJsonResponse(resp);
+  }
+
+  /// Prosumer sends [amountRs] worth of energy to [buyerId].
+  /// Yellow coins are deducted from sender; buyer receives green coins.
+  /// Platform keeps 20% spread — logged in admin_profit table.
+  static Future<Map<String, dynamic>> sendEnergy(
+      String buyerId, double amountRs) async {
+    final token = await getToken();
+    final url = Uri.parse('$baseUrl/wallet/send-energy');
+    final resp = await http.post(url,
+        headers: _jsonHeaders(token),
+        body: jsonEncode({'buyer_id': buyerId, 'amount_rs': amountRs}));
+    return _handleJsonResponse(resp);
+  }
+
+  /// Prosumer sells [yellowAmount] yellow coins; [buyerId] receives green coins.
+  /// Platform takes 20% — buyer receives (yellowAmount × Rs4 × 0.80) / Rs7 green coins.
+  static Future<Map<String, dynamic>> sellYellowCoins(
+      String buyerId, double yellowAmount) async {
+    final token = await getToken();
+    final url = Uri.parse('$baseUrl/wallet/sell-yellow');
+    final resp = await http.post(url,
+        headers: _jsonHeaders(token),
+        body: jsonEncode({'buyer_id': buyerId, 'amount': yellowAmount}));
     return _handleJsonResponse(resp);
   }
 

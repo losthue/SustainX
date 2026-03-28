@@ -147,6 +147,10 @@ class PaymentService {
             { replacements: { coins: totalCoins, userId } }
         );
 
+        // Auto-offset red coins with green coins if no yellow coins available
+        const WalletService = require('./WalletService');
+        const offsetAmount = await WalletService.autoOffsetGreenReceiver(userId);
+
         // Update purchase status
         await sequelize.query(
             `UPDATE purchases 
@@ -168,29 +172,12 @@ class PaymentService {
             }
         );
 
-        // Auto-offset red coins
-        const [wallet] = await sequelize.query(
-            'SELECT green_coins, red_coins FROM wallets WHERE user_id = ?',
-            { replacements: [userId] }
-        );
-
-        if (wallet && wallet.length > 0) {
-            const green = parseFloat(wallet[0].green_coins) || 0;
-            const red = parseFloat(wallet[0].red_coins) || 0;
-            if (green > 0 && red > 0) {
-                const offset = Math.min(green, red);
-                await sequelize.query(
-                    `UPDATE wallets 
-                     SET green_coins = green_coins - :offset,
-                         red_coins = red_coins - :offset,
-                         updated_at = CURRENT_TIMESTAMP
-                     WHERE user_id = :userId`,
-                    { replacements: { offset, userId } }
-                );
-            }
-        }
-
-        return { success: true, coins_credited: totalCoins, user_id: userId };
+        return { 
+            success: true, 
+            coins_credited: totalCoins, 
+            red_coins_offset: offsetAmount,
+            user_id: userId 
+        };
     }
 
     // ── Purchase history ─────────────────────────────────────────────────

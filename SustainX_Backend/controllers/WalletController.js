@@ -18,6 +18,42 @@ class WalletController {
         } catch (err) { next(err); }
     }
 
+    // GET /wallet/coin-values
+    static async getCoinValues(_req, res, next) {
+        try {
+            const data = await WalletService.getCoinValues();
+            return res.status(200).json({ success: true, data });
+        } catch (err) { next(err); }
+    }
+
+    // POST /wallet/send-energy
+    // Body: { buyer_id: string, amount_rs: number }
+    // Prosumer sends Rs X of energy: yellow deducted from sender,
+    // green credited to buyer, difference goes to admin profit.
+    static async sendEnergy(req, res, next) {
+        try {
+            const { buyer_id, amount_rs } = req.body;
+            if (!buyer_id) return res.status(400).json({ success: false, message: 'buyer_id is required' });
+            if (!amount_rs || parseFloat(amount_rs) <= 0) return res.status(400).json({ success: false, message: 'Provide a positive Rs amount' });
+
+            const result = await WalletService.sendEnergy(req.userId, buyer_id, parseFloat(amount_rs));
+            return res.status(200).json({ success: true, data: result });
+        } catch (err) { next(err); }
+    }
+
+    // POST /wallet/sell-yellow
+    // Body: { buyer_id: string, amount: number }  (amount = yellow coin count)
+    static async sellYellow(req, res, next) {
+        try {
+            const { buyer_id, amount } = req.body;
+            if (!buyer_id) return res.status(400).json({ success: false, message: 'buyer_id is required' });
+            if (!amount || parseFloat(amount) <= 0) return res.status(400).json({ success: false, message: 'Provide a positive amount to sell' });
+
+            const result = await WalletService.sellYellowCoins(req.userId, buyer_id, parseFloat(amount));
+            return res.status(200).json({ success: true, data: result });
+        } catch (err) { next(err); }
+    }
+
     // POST /wallet/transfer-green
     // Body: { receiver_id: string, amount: number, note?: string }
     static async transferGreen(req, res, next) {
@@ -60,7 +96,7 @@ class WalletController {
                 });
             }
 
-            const result = await WalletService.offsetRedWithGreen(req.userId, parseFloat(amount));
+            const result = await WalletService.offsetRed(req.userId, parseFloat(amount));
             return res.status(200).json({ success: true, data: result });
         } catch (err) { next(err); }
     }
@@ -75,7 +111,7 @@ class WalletController {
     }
 
     // GET /wallet/system-totals
-    static async getSystemTotals(req, res, next) {
+    static async getSystemTotals(_req, res, next) {
         try {
             const totals = await WalletService.getSystemTotals();
             return res.status(200).json({ success: true, data: totals });

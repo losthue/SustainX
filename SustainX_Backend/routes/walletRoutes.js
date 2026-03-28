@@ -10,10 +10,19 @@ router.use(authMiddleware);
 router.get('/info', WalletController.getWallet);
 router.get('/balance', WalletController.getBalance);
 
-// Green coin transfer
+// Coin monetary values (yellow Rs4, green Rs7, red Rs10, platform fee 20%)
+router.get('/coin-values', WalletController.getCoinValues);
+
+// P2P energy sale: prosumer sends Rs amount → yellow deducted, buyer gets green, admin keeps spread
+router.post('/send-energy', WalletController.sendEnergy);
+
+// P2P marketplace: prosumer sells yellow coins (by coin count) → buyer receives green coins
+router.post('/sell-yellow', WalletController.sellYellow);
+
+// Green coin wallet-to-wallet transfer
 router.post('/transfer-green', WalletController.transferGreen);
 
-// Offset red coins with green
+// Manual offset: burn yellow coins to cancel red debt
 router.post('/offset-red', WalletController.offsetRed);
 
 // Leaderboard

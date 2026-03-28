@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../services/api_service.dart';
 
 // ── Shared palette ─────────────────────────────────────────────────────────
@@ -61,11 +60,10 @@ class _EnergyRecordScreenState extends State<EnergyRecordScreen> {
   bool   _msgIsError = false;
 
   // Conversion rates from backend (AI-adjusted)
-  double _yellowRate = 1.0;
-  double _greenRate  = 0.5;
-  double _redRate    = 1.5;
+  double _yellowRate  = 1.0;
+  double _redRate     = 1.5;
   String _aiReasoning = '';
-  String _weather = '';
+  String _weather     = '';
 
   // Past readings
   List<dynamic> _pastReadings = [];
@@ -101,7 +99,6 @@ class _EnergyRecordScreenState extends State<EnergyRecordScreen> {
       final data = ratesRes['data'] as Map<String, dynamic>?;
       if (data != null) {
         _yellowRate = _toDouble(data['yellow']?['rate'] ?? 1.0);
-        _greenRate  = _toDouble(data['green']?['rate'] ?? 0.5);
         _redRate    = _toDouble(data['red']?['rate'] ?? 1.5);
         _aiReasoning = data['ai_reasoning']?.toString() ?? '';
         _weather = data['weather']?.toString() ?? '';
@@ -130,7 +127,6 @@ class _EnergyRecordScreenState extends State<EnergyRecordScreen> {
   double get _netKwh    => _exportKwh - _importKwh;
 
   double get _previewYellow => _netKwh > 0 ? (_netKwh * _yellowRate) : 0;
-  double get _previewGreen  => _netKwh > 0 ? (_netKwh * _greenRate) : 0;
   double get _previewRed    => _netKwh < 0 ? (_netKwh.abs() * _redRate) : 0;
 
   Future<void> _submitReading() async {
@@ -316,8 +312,7 @@ class _EnergyRecordScreenState extends State<EnergyRecordScreen> {
           ],
           const SizedBox(height: 10),
           _rateRow('🟡 Yellow', '${_yellowRate}× per kWh surplus', 'AI', _kGold, textColor),
-          _rateRow('🟢 Green', '${_greenRate}× per kWh surplus', 'AI', _kGreen, textColor),
-          _rateRow('🔴 Red', '${_redRate}× per kWh deficit', 'Fixed', _kRed, textColor),
+          _rateRow('🔴 Red', '${_redRate}× per kWh deficit', 'AI', _kRed, textColor),
         ],
       ),
     );
@@ -523,8 +518,6 @@ class _EnergyRecordScreenState extends State<EnergyRecordScreen> {
           Row(
             children: [
               _previewCoinChip('🟡', _previewYellow, _kGold),
-              const SizedBox(width: 8),
-              _previewCoinChip('🟢', _previewGreen, _kGreen),
               const SizedBox(width: 8),
               _previewCoinChip('🔴', _previewRed, _kRed),
             ],

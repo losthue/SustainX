@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../services/api_service.dart';
 
 // ── Shared palette ─────────────────────────────────────────────────────────
@@ -52,21 +51,27 @@ class _TransactionScreenState extends State<TransactionScreen>
     with SingleTickerProviderStateMixin {
 
   // controllers
-  final _toUserController      = TextEditingController();
-  final _greenAmountController  = TextEditingController(text: '0');
-  final _noteController         = TextEditingController();
+  final _toUserController  = TextEditingController();
+  final _rsAmountController = TextEditingController();
 
   // state
-  bool          _isLoading = true;
-  String        _message   = '';
+  bool          _isLoading  = true;
+  String        _message    = '';
   bool          _msgIsError = false;
-  List<dynamic> _sent      = [];
-  List<dynamic> _received  = [];
+  List<dynamic> _sent       = [];
+  List<dynamic> _received   = [];
 
-  // wallet info
-  double _greenCoins = 0;
-  double _redCoins   = 0;
+  // wallet balances
+  double _greenCoins  = 0;
+  double _redCoins    = 0;
   double _yellowCoins = 0;
+
+  // coin values (from backend)
+  double _yellowValue = 4.0;
+  double _greenValue  = 7.0;
+  double _feePct      = 20.0;
+
+  bool _sendGreen = false; // select green coin transfer vs yellow energy sale
 
   late TabController _tabController;
   bool _initialized = false;
@@ -83,8 +88,7 @@ class _TransactionScreenState extends State<TransactionScreen>
   @override
   void dispose() {
     _toUserController.dispose();
-    _greenAmountController.dispose();
-    _noteController.dispose();
+    _rsAmountController.dispose();
     _tabController.dispose();
     super.dispose();
   }
@@ -93,9 +97,17 @@ class _TransactionScreenState extends State<TransactionScreen>
   Future<void> _loadTransactions() async {
     setState(() { _isLoading = true; _message = ''; });
 
-    final sentRes     = await ApiService.getSentTransactions();
-    final receivedRes = await ApiService.getReceivedTransactions();
-    final walletRes   = await ApiService.getWalletBalance();
+    final results = await Future.wait([
+      ApiService.getSentTransactions(),
+      ApiService.getReceivedTransactions(),
+      ApiService.getWalletBalance(),
+      ApiService.getCoinValues(),
+    ]);
+
+    final sentRes     = results[0];
+    final receivedRes = results[1];
+    final walletRes   = results[2];
+    final coinRes     = results[3];
 
     if (walletRes['success'] == true) {
       final data = walletRes['data'] as Map<String, dynamic>?;
@@ -103,6 +115,15 @@ class _TransactionScreenState extends State<TransactionScreen>
         _greenCoins  = _toDouble(data?['green_coins']);
         _redCoins    = _toDouble(data?['red_coins']);
         _yellowCoins = _toDouble(data?['yellow_coins']);
+      });
+    }
+
+    if (coinRes['success'] == true) {
+      final d = coinRes['data'] as Map<String, dynamic>?;
+      setState(() {
+        _yellowValue = _toDouble(d?['yellow_rs'] ?? 4.0);
+        _greenValue  = _toDouble(d?['green_rs']  ?? 7.0);
+        _feePct      = _toDouble(d?['platform_fee_pct'] ?? 20.0);
       });
     }
 
@@ -131,37 +152,74 @@ class _TransactionScreenState extends State<TransactionScreen>
     return 0.0;
   }
 
-  Future<void> _transferGreenCoins() async {
+  // Computed preview values
+  double get _rsAmount      => double.tryParse(_rsAmountController.text.trim()) ?? 0;
+  double get _yellowDeducted => _yellowValue > 0 ? _rsAmount / _yellowValue : 0;
+  double get _profitRs       => _rsAmount * _feePct / 100;
+  double get _greenCredited  => _greenValue > 0 ? (_rsAmount - _profitRs) / _greenValue : 0;
+
+  Future<void> _sendEnergy() async {
     final recipient = _toUserController.text.trim();
-    final amount = double.tryParse(_greenAmountController.text.trim()) ?? 0;
+    final amountRs = _rsAmount;
 
     if (recipient.isEmpty) {
       _setMsg('Recipient user ID is required.', isError: true);
       return;
     }
-    if (amount <= 0) {
-      _setMsg('Enter a positive amount of green coins to transfer.', isError: true);
-      return;
-    }
-    if (amount > _greenCoins) {
-      _setMsg('Only ${_greenCoins.toStringAsFixed(0)} green coins available.', isError: true);
+    if (amountRs <= 0) {
+      _setMsg('Enter a positive amount to send.', isError: true);
       return;
     }
 
     setState(() => _isLoading = true);
-    final res = await ApiService.transferGreenCoins(
-      recipient,
-      amount,
-      note: _noteController.text.trim(),
-    );
-    if (res['success'] == true) {
-      _greenAmountController.text = '0';
-      _toUserController.clear();
-      _noteController.clear();
-      await _loadTransactions();
-      _setMsg('Transferred ${amount.toStringAsFixed(0)} green coins to $recipient.', isError: false);
-    } else {
-      _setMsg(res['message']?.toString() ?? 'Transfer failed', isError: true);
+
+    try {
+      Map<String, dynamic> res;
+
+      if (_sendGreen) {
+        final greenAmount = (amountRs / _greenValue).toDouble();
+        if (greenAmount > _greenCoins) {
+          _setMsg('Insufficient green coins. Max you can send: ${_greenCoins.toStringAsFixed(4)} green coins.', isError: true);
+          setState(() => _isLoading = false);
+          return;
+        }
+
+        res = await ApiService.transferGreenCoins(recipient, double.parse(greenAmount.toStringAsFixed(4)));
+      } else {
+        final maxRs = _yellowCoins * _yellowValue;
+        if (amountRs > maxRs) {
+          _setMsg('Insufficient yellow coins. Max you can send: Rs ${maxRs.toStringAsFixed(2)}.', isError: true);
+          setState(() => _isLoading = false);
+          return;
+        }
+
+        res = await ApiService.sendEnergy(recipient, amountRs);
+      }
+
+      if (res['success'] == true) {
+        _rsAmountController.clear();
+        _toUserController.clear();
+        await _loadTransactions();
+
+        if (_sendGreen) {
+          final sentGreen = double.parse((amountRs / _greenValue).toStringAsFixed(4));
+          _setMsg(
+            'Sent Rs ${amountRs.toStringAsFixed(2)} as $sentGreen green coins to $recipient. They received $sentGreen green coins.',
+            isError: false,
+          );
+        } else {
+          _setMsg(
+            'Sent Rs ${amountRs.toStringAsFixed(2)} to $recipient. ' 
+            'They received ${_greenCredited.toStringAsFixed(2)} green coins.',
+            isError: false,
+          );
+        }
+      } else {
+        _setMsg(res['message']?.toString() ?? 'Transfer failed', isError: true);
+        setState(() => _isLoading = false);
+      }
+    } catch (error) {
+      _setMsg(error.toString(), isError: true);
       setState(() => _isLoading = false);
     }
   }
@@ -267,8 +325,10 @@ class _TransactionScreenState extends State<TransactionScreen>
     );
   }
 
-  // ── Transfer card ─────────────────────────────────────────────────────────
+  // ── Send Energy card ──────────────────────────────────────────────────────
   Widget _buildTransferCard(Color surface, Color textColor, bool isDark) {
+    final hasPreview = _rsAmount > 0 && _toUserController.text.trim().isNotEmpty;
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -280,7 +340,7 @@ class _TransactionScreenState extends State<TransactionScreen>
         ),
         boxShadow: [
           BoxShadow(
-            color: _kPink.withOpacity(0.08),
+            color: _kPink.withValues(alpha: 0.08),
             blurRadius: 20,
             offset: const Offset(0, 6),
           ),
@@ -298,93 +358,156 @@ class _TransactionScreenState extends State<TransactionScreen>
                   gradient: const LinearGradient(colors: _gradientColors),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
+                child: const Icon(Icons.bolt_rounded, color: Colors.white, size: 18),
               ),
               const SizedBox(width: 10),
-              Text(
-                'Send Green Coins',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                  color: textColor,
-                ),
-              ),
+              Text('Send Energy',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: textColor)),
             ],
           ),
           const SizedBox(height: 12),
 
-          // Wallet status
+          // Wallet balances
           Row(
             children: [
-              _balanceBadge('🟢 Green', _greenCoins, const Color(0xFF43A047)),
-              const SizedBox(width: 8),
               _balanceBadge('🟡 Yellow', _yellowCoins, _kGold),
+              const SizedBox(width: 8),
+              _balanceBadge('🟢 Green', _greenCoins, const Color(0xFF43A047)),
               const SizedBox(width: 8),
               _balanceBadge('🔴 Red', _redCoins, Colors.red),
             ],
           ),
           const SizedBox(height: 16),
 
-          // Transfer green coins
-          _buildActionRow(
-            label: 'Amount',
-            controller: _greenAmountController,
-            buttonLabel: 'Send',
-            onPressed: _transferGreenCoins,
-            textColor: textColor,
-            isDark: isDark,
-            accentColor: const Color(0xFF43A047),
-          ),
-          const SizedBox(height: 16),
-
-          // Recipient
-          _buildTextField(
-            controller:  _toUserController,
-            label:       'Recipient User ID',
-            hint:        'Enter user ID',
-            icon:        Icons.person_search_rounded,
-            textColor:   textColor,
-            isDark:      isDark,
-          ),
-          const SizedBox(height: 16),
-
-          // Note
-          _buildTextField(
-            controller:  _noteController,
-            label:       'Note',
-            hint:        'Optional message...',
-            icon:        Icons.notes_rounded,
-            textColor:   textColor,
-            isDark:      isDark,
-            maxLines:    2,
+          // Coin type selection
+          Row(
+            children: [
+              ChoiceChip(
+                label: const Text('Yellow (market)'),
+                selected: !_sendGreen,
+                onSelected: (value) => setState(() => _sendGreen = !value),
+              ),
+              const SizedBox(width: 10),
+              ChoiceChip(
+                label: const Text('Green (Rs-match)'),
+                selected: _sendGreen,
+                onSelected: (value) => setState(() => _sendGreen = value),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
 
-          // Auto-offset info
-          if (_redCoins > 0)
+          // Amount input
+          _buildTextField(
+            controller: _rsAmountController,
+            label:      'Amount (Rs)',
+            hint:       _sendGreen ? 'e.g. 1000 (1000 green coins)' : 'e.g. 1000',
+            icon:       Icons.currency_rupee_rounded,
+            textColor:  textColor,
+            isDark:     isDark,
+            numeric:    true,
+          ),
+          const SizedBox(height: 12),
+
+          // Recipient
+          _buildTextField(
+            controller: _toUserController,
+            label:      'Recipient User ID',
+            hint:       'Enter user ID',
+            icon:       Icons.person_search_rounded,
+            textColor:  textColor,
+            isDark:     isDark,
+          ),
+          const SizedBox(height: 16),
+
+          // Live breakdown preview
+          if (hasPreview) ...[
             Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                color: _kGold.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _kGold.withValues(alpha: 0.25)),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.info_outline_rounded, color: Colors.orange, size: 16),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'You have ${_redCoins.toStringAsFixed(0)} red coins debt. Green coins received will auto-offset your debt.',
-                      style: TextStyle(fontSize: 11, color: textColor.withOpacity(0.6)),
-                    ),
-                  ),
+                  Text('Breakdown',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: textColor)),
+                  const SizedBox(height: 10),
+                  if (_sendGreen) ...[
+                    _breakdownRow('🟢 Rs amount',
+                      'Rs ${_rsAmount.toStringAsFixed(2)}',
+                      'Exchange to green coins', const Color(0xFF43A047), textColor),
+                    const SizedBox(height: 6),
+                    _breakdownRow('🟢 Coin amount',
+                      '${(_rsAmount / _greenValue).toStringAsFixed(4)} green coins',
+                      '1 green = Rs ${_greenValue.toStringAsFixed(2)}', const Color(0xFF43A047), textColor),
+                    const SizedBox(height: 6),
+                    _breakdownRow('🏦 Platform fee',
+                      '0%',
+                      'Rs 0.00',
+                      Colors.grey, textColor),
+                  ] else ...[
+                    _breakdownRow('🟡 You send',
+                      '${_yellowDeducted.toStringAsFixed(2)} yellow coins',
+                      'Rs ${_rsAmount.toStringAsFixed(2)}', _kGold, textColor),
+                    const SizedBox(height: 6),
+                    _breakdownRow('🟢 Recipient gets',
+                      '${_greenCredited.toStringAsFixed(2)} green coins',
+                      'Rs ${(_rsAmount - _profitRs).toStringAsFixed(2)}',
+                      const Color(0xFF43A047), textColor),
+                    const SizedBox(height: 6),
+                    _breakdownRow('🏦 Platform fee',
+                      '${_feePct.toStringAsFixed(0)}%',
+                      'Rs ${_profitRs.toStringAsFixed(2)}',
+                      Colors.grey, textColor),
+                  ],
                 ],
               ),
             ),
-          const SizedBox(height: 16),
+            const SizedBox(height: 16),
+          ],
+
+          // Send button
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: _gradientColors),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: ElevatedButton(
+                onPressed: _sendEnergy,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: Text(_sendGreen ? 'Send Green' : 'Send Yellow',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
+              ),
+            ),
+          ),
         ],
       ),
+    );
+  }
+
+  Widget _breakdownRow(String label, String coins, String rs, Color accent, Color textColor) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(label,
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: textColor)),
+        ),
+        Text(coins,
+          style: TextStyle(fontSize: 12, color: accent, fontWeight: FontWeight.bold)),
+        const SizedBox(width: 8),
+        Text(rs,
+          style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.5))),
+      ],
     );
   }
 
@@ -416,55 +539,6 @@ class _TransactionScreenState extends State<TransactionScreen>
     );
   }
 
-  Widget _buildActionRow({
-    required String label,
-    required TextEditingController controller,
-    required String buttonLabel,
-    required VoidCallback onPressed,
-    required Color textColor,
-    required bool isDark,
-    required Color accentColor,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label,
-          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: textColor)),
-        const SizedBox(height: 6),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: controller,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(
-                  hintText: 'Enter amount',
-                  filled: true,
-                  fillColor: isDark ? const Color(0xFF1B1B1B) : const Color(0xFFF2F2F8),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            SizedBox(
-              height: 40,
-              child: ElevatedButton(
-                onPressed: onPressed,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: accentColor,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                child: Text(buttonLabel, style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.white)),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
@@ -472,7 +546,8 @@ class _TransactionScreenState extends State<TransactionScreen>
     required IconData icon,
     required Color  textColor,
     required bool   isDark,
-    int maxLines = 1,
+    int  maxLines = 1,
+    bool numeric  = false,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -484,6 +559,10 @@ class _TransactionScreenState extends State<TransactionScreen>
         TextField(
           controller:  controller,
           maxLines:    maxLines,
+          keyboardType: numeric
+              ? const TextInputType.numberWithOptions(decimal: true)
+              : TextInputType.text,
+          onChanged: numeric ? (_) => setState(() {}) : null,
           style:       TextStyle(color: textColor),
           decoration: InputDecoration(
             hintText:  hint,

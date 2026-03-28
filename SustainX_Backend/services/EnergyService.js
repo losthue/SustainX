@@ -3,12 +3,13 @@ const { QueryTypes } = require('sequelize');
 const EnergyReading = require('../models/EnergyReading');
 const CoinGenerationLog = require('../models/CoinGenerationLog');
 const WeatherService = require('./WeatherService');
+const WalletService = require('./WalletService');
 
 // Conversion rates (centralized)
+// Green is NOT minted from energy readings — only yellow and red are minted.
 const COIN_RATES = {
-    yellow: 1.0,   // 1 kWh surplus = 1 yellow coin (badge)
-    green:  0.5,   // 2 kWh surplus = 1 green coin (tradeable)
-    red:    1.5,   // 1 kWh deficit = 1.5 red coins (penalty)
+    yellow: 1.0,   // 1 kWh surplus  = 1 yellow coin (auto-offsets red debt)
+    red:    1.5,   // 1 kWh deficit  = 1.5 red coins (grid consumption penalty)
 };
 
 class EnergyService {
@@ -21,9 +22,9 @@ class EnergyService {
             const dynamicRates = await WeatherService.getCurrentRates();
             return {
                 yellow: { rate: dynamicRates.yellow, description: `1 kWh surplus = ${dynamicRates.yellow} yellow coins (AI-adjusted)` },
-                green:  { rate: dynamicRates.green,  description: `1 kWh surplus = ${dynamicRates.green} green coins (AI-adjusted)` },
-                red:    { rate: dynamicRates.red,     description: `1 kWh deficit = ${dynamicRates.red} red coins (penalty)` },
-                offset: { rate: 1.0, description: '1 green coin offsets 1 red coin' },
+                green:  { rate: null, description: 'Green coins are not minted from energy — obtained via marketplace or P2P sale' },
+                red:    { rate: dynamicRates.red,    description: `1 kWh deficit = ${dynamicRates.red} red coins (penalty)` },
+                offset: { rate: 1.0, description: '1 yellow coin offsets 1 red coin' },
                 weather: dynamicRates.weather,
                 ai_reasoning: dynamicRates.ai_reasoning,
             };
@@ -31,9 +32,9 @@ class EnergyService {
             console.error('Failed to get AI rates:', err.message);
             return {
                 yellow: { rate: COIN_RATES.yellow, description: `1 kWh surplus = ${COIN_RATES.yellow} yellow coin (fallback)` },
-                green:  { rate: COIN_RATES.green,  description: `1 kWh surplus = ${COIN_RATES.green} green coin (fallback)` },
+                green:  { rate: null, description: 'Green coins are not minted from energy — obtained via marketplace or P2P sale' },
                 red:    { rate: COIN_RATES.red,    description: `1 kWh deficit = ${COIN_RATES.red} red coins (penalty)` },
-                offset: { rate: 1.0, description: '1 green coin offsets 1 red coin' },
+                offset: { rate: 1.0, description: '1 yellow coin offsets 1 red coin' },
             };
         }
     }
@@ -92,6 +93,9 @@ class EnergyService {
             existing.meter_id = meterId;
             await existing.save();
 
+            // Calculate net kWh (coins will be generated later via generateCoinsForCycle)
+            const netKwh = expKwh - impKwh;
+
             return {
                 action: 'updated',
                 reading: {
@@ -100,8 +104,9 @@ class EnergyService {
                     meter_id: meterId,
                     import_kwh: impKwh,
                     export_kwh: expKwh,
-                    net_kwh: expKwh - impKwh,
+                    net_kwh: netKwh,
                     billing_cycle: cycle,
+                    coins_generated: { yellow: 0, green: 0, red: 0 }, // No immediate generation
                 },
             };
         }
@@ -115,6 +120,9 @@ class EnergyService {
             billing_cycle: cycle,
         });
 
+        // Calculate net kWh (coins will be generated later via generateCoinsForCycle)
+        const netKwh = expKwh - impKwh;
+
         return {
             action: 'created',
             reading: {
@@ -123,8 +131,9 @@ class EnergyService {
                 meter_id: meterId,
                 import_kwh: impKwh,
                 export_kwh: expKwh,
-                net_kwh: expKwh - impKwh,
+                net_kwh: netKwh,
                 billing_cycle: cycle,
+                coins_generated: { yellow: 0, green: 0, red: 0 }, // No immediate generation
             },
         };
     }
@@ -206,7 +215,7 @@ class EnergyService {
 
         // Get AI-adjusted rates
         let yellowRate = COIN_RATES.yellow;
-        let greenRate = COIN_RATES.green;
+        let greenRate = 0.5; // Default green rate
         let redRate = COIN_RATES.red;
 
         try {
@@ -239,6 +248,20 @@ class EnergyService {
             where: { billing_cycle: cycle },
         });
 
+        // Auto-offset: for every wallet with both yellow and red balance,
+        // clear the red using yellow if present.
+        const [offsetWallets] = await sequelize.query(
+            'SELECT user_id FROM wallets WHERE yellow_coins > 0 AND red_coins > 0'
+        );
+
+        const offsetResults = {};
+        for (const w of offsetWallets) {
+            const offsetted = await WalletService.autoOffset(w.user_id);
+            if (offsetted > 0) {
+                offsetResults[w.user_id] = offsetted;
+            }
+        }
+
         return {
             billing_cycle: cycle,
             users_processed: logs.length,
@@ -250,6 +273,7 @@ class EnergyService {
                 yellow_coins_minted: parseFloat(l.yellow_coins_minted),
                 green_coins_minted: parseFloat(l.green_coins_minted),
                 red_coins_minted: parseFloat(l.red_coins_minted),
+                red_coins_offset: offsetResults[l.user_id] || 0,
             })),
         };
     }

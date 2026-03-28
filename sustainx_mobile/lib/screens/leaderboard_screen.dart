@@ -73,8 +73,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
       i < _leaderboard.length ? (_leaderboard[i] as Map<String, dynamic>) : {};
 
   String _name(int i)  => _entry(i)['name']?.toString()   ?? 'N/A';
-  int    _coins(int i) => int.tryParse(
-      _entry(i)['total_yellow']?.toString() ?? '0') ?? 0;
+  int    _coins(int i) => (double.tryParse(
+      _entry(i)['total_yellow']?.toString() ?? '0') ?? 0).round();
   int    _rank(int i)  => int.tryParse(
       _entry(i)['rank']?.toString() ?? '${i + 1}') ?? (i + 1);
 

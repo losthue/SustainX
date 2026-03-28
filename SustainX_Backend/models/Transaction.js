@@ -19,12 +19,16 @@ Transaction.init(
             allowNull: true, // NULL for burns
         },
         coin_type: {
-            type: DataTypes.ENUM('green', 'red'),
+            type: DataTypes.ENUM('green', 'red', 'yellow'),
             allowNull: false,
         },
         amount: {
             type: DataTypes.DECIMAL(10, 4),
             allowNull: false,
+        },
+        amount_rs: {
+            type: DataTypes.DECIMAL(10, 2),
+            allowNull: true,
         },
         transaction_type: {
             type: DataTypes.ENUM('mint', 'transfer', 'offset', 'burn'),

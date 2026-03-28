@@ -1,8 +1,16 @@
--- Update stored procedure to accept dynamic rates
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+const { sequelize, testConnection } = require('../config/db');
 
-DROP PROCEDURE IF EXISTS generate_coins_for_cycle;
+(async () => {
+  try {
+    await testConnection();
 
+    // Create the stored procedure
+    const procedureSQL = `
 DELIMITER $$
+
+DROP PROCEDURE IF EXISTS generate_coins_for_cycle$$
 
 CREATE PROCEDURE generate_coins_for_cycle(
     IN p_billing_cycle INT,
@@ -29,7 +37,7 @@ BEGIN
         COALESCE(export_kwh, 0),
         COALESCE(net_kwh, COALESCE(export_kwh, 0) - COALESCE(import_kwh, 0)),
         CASE WHEN COALESCE(net_kwh, COALESCE(export_kwh, 0) - COALESCE(import_kwh, 0)) > 0 THEN ROUND(COALESCE(net_kwh, COALESCE(export_kwh, 0) - COALESCE(import_kwh, 0)) * @yr, 4) ELSE 0 END,
-        0, -- Green coins NOT generated from energy readings (obtained via marketplace/P2P only)
+        CASE WHEN COALESCE(net_kwh, COALESCE(export_kwh, 0) - COALESCE(import_kwh, 0)) > 0 THEN ROUND(COALESCE(net_kwh, COALESCE(export_kwh, 0) - COALESCE(import_kwh, 0)) * @gr, 4) ELSE 0 END,
         CASE WHEN COALESCE(net_kwh, COALESCE(export_kwh, 0) - COALESCE(import_kwh, 0)) < 0 THEN ROUND(ABS(COALESCE(net_kwh, COALESCE(export_kwh, 0) - COALESCE(import_kwh, 0))) * @rr, 4) ELSE 0 END
     FROM energy_readings
     WHERE billing_cycle = p_billing_cycle
@@ -49,43 +57,15 @@ BEGIN
         w.red_coins    = w.red_coins    + cgl.red_coins_minted,
         w.updated_at   = CURRENT_TIMESTAMP;
 
-    -- Step 3: Auto-offset yellow vs red and then green vs red
+    -- Step 3: Auto-offset green vs red
     CREATE TEMPORARY TABLE IF NOT EXISTS tmp_offsets (
         user_id VARCHAR(10),
-        offset_amount DECIMAL(10,4),
-        coin_type ENUM('yellow','green')
+        offset_amount DECIMAL(10,4)
     );
     TRUNCATE TABLE tmp_offsets;
 
-    -- Yellow offsets first
-    INSERT INTO tmp_offsets (user_id, offset_amount, coin_type)
-    SELECT w.user_id, LEAST(w.yellow_coins, w.red_coins), 'yellow'
-    FROM wallets w
-    WHERE w.yellow_coins > 0
-      AND w.red_coins > 0
-      AND w.user_id IN (
-          SELECT user_id FROM coin_generation_log WHERE billing_cycle = p_billing_cycle
-      );
-
-    UPDATE wallets w
-    JOIN tmp_offsets t ON w.user_id = t.user_id AND t.coin_type = 'yellow'
-    SET
-        w.yellow_coins = w.yellow_coins - t.offset_amount,
-        w.red_coins    = w.red_coins    - t.offset_amount,
-        w.updated_at   = CURRENT_TIMESTAMP;
-
-    INSERT INTO transactions (sender_id, receiver_id, coin_type, amount, transaction_type, billing_cycle, note, status)
-    SELECT
-        t.user_id, NULL, 'yellow', t.offset_amount, 'offset', p_billing_cycle,
-        CONCAT('Auto-offset cycle ', p_billing_cycle, ' (yellow)'), 'completed'
-    FROM tmp_offsets t
-    WHERE t.offset_amount > 0 AND t.coin_type = 'yellow';
-
-    TRUNCATE TABLE tmp_offsets;
-
-    -- Green offsets next
-    INSERT INTO tmp_offsets (user_id, offset_amount, coin_type)
-    SELECT w.user_id, LEAST(w.green_coins, w.red_coins), 'green'
+    INSERT INTO tmp_offsets (user_id, offset_amount)
+    SELECT w.user_id, LEAST(w.green_coins, w.red_coins)
     FROM wallets w
     WHERE w.green_coins > 0
       AND w.red_coins > 0
@@ -94,7 +74,7 @@ BEGIN
       );
 
     UPDATE wallets w
-    JOIN tmp_offsets t ON w.user_id = t.user_id AND t.coin_type = 'green'
+    JOIN tmp_offsets t ON w.user_id = t.user_id
     SET
         w.green_coins = w.green_coins - t.offset_amount,
         w.red_coins   = w.red_coins   - t.offset_amount,
@@ -103,13 +83,21 @@ BEGIN
     INSERT INTO transactions (sender_id, receiver_id, coin_type, amount, transaction_type, billing_cycle, note, status)
     SELECT
         t.user_id, NULL, 'green', t.offset_amount, 'offset', p_billing_cycle,
-        CONCAT('Auto-offset cycle ', p_billing_cycle, ' (green)'), 'completed'
+        CONCAT('Auto-offset cycle ', p_billing_cycle), 'completed'
     FROM tmp_offsets t
-    WHERE t.offset_amount > 0 AND t.coin_type = 'green';
+    WHERE t.offset_amount > 0;
 
     DROP TEMPORARY TABLE IF EXISTS tmp_offsets;
 
     -- Step 4: Log mint transactions
+    INSERT INTO transactions (sender_id, receiver_id, coin_type, amount, transaction_type, billing_cycle, note, status)
+    SELECT
+        NULL, cgl.user_id, 'yellow', cgl.yellow_coins_minted, 'mint', p_billing_cycle,
+        CONCAT('Mint cycle ', p_billing_cycle, ' (Y:', @yr, ' G:', @gr, ' R:', @rr, ')'), 'completed'
+    FROM coin_generation_log cgl
+    WHERE cgl.billing_cycle = p_billing_cycle
+      AND cgl.yellow_coins_minted > 0;
+
     INSERT INTO transactions (sender_id, receiver_id, coin_type, amount, transaction_type, billing_cycle, note, status)
     SELECT
         NULL, cgl.user_id, 'green', cgl.green_coins_minted, 'mint', p_billing_cycle,
@@ -117,6 +105,26 @@ BEGIN
     FROM coin_generation_log cgl
     WHERE cgl.billing_cycle = p_billing_cycle
       AND cgl.green_coins_minted > 0;
+
+    INSERT INTO transactions (sender_id, receiver_id, coin_type, amount, transaction_type, billing_cycle, note, status)
+    SELECT
+        NULL, cgl.user_id, 'red', cgl.red_coins_minted, 'mint', p_billing_cycle,
+        CONCAT('Mint cycle ', p_billing_cycle, ' (Y:', @yr, ' G:', @gr, ' R:', @rr, ')'), 'completed'
+    FROM coin_generation_log cgl
+    WHERE cgl.billing_cycle = p_billing_cycle
+      AND cgl.red_coins_minted > 0;
 END$$
 
 DELIMITER ;
+    `;
+
+    await sequelize.query(procedureSQL);
+
+    console.log('✓ Successfully created stored procedure generate_coins_for_cycle');
+
+  } catch (error) {
+    console.error('Error creating stored procedure:', error);
+  } finally {
+    await sequelize.close();
+  }
+})();
